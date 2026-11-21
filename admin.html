@@ -97,6 +97,21 @@
         max-height: 140px;
         overflow-y: auto;
     }
+    .sub-iframe-wrap {
+        margin-top: 10px;
+        max-width: 380px;
+        aspect-ratio: 16 / 9;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        overflow: hidden;
+        background: #000;
+    }
+    .sub-iframe-wrap iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        display: block;
+    }
     .row-btns { display: flex; gap: 8px; flex-shrink: 0; }
     .btn-ok {
         padding: 6px 12px;
@@ -198,6 +213,10 @@
                         <input id="songSlug" type="text" required placeholder="np. sobel-impreza">
                     </div>
                     <div class="field">
+                        <label for="songYoutubeUrl">Link do YouTube / YouTube Music (opcjonalnie)</label>
+                        <input id="songYoutubeUrl" type="url" placeholder="https://music.youtube.com/watch?v=...">
+                    </div>
+                    <div class="field">
                         <label for="songLyrics">Tekst piosenki</label>
                         <textarea id="songLyrics" required placeholder="Wpisz tekst utworu..."></textarea>
                     </div>
@@ -257,6 +276,42 @@ function escapeHtml(str) {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+}
+
+function extractYouTubeId(rawUrl) {
+    if (!rawUrl) return null;
+    const trimmed = rawUrl.trim();
+    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+
+    try {
+        const url = new URL(trimmed);
+        const host = url.hostname.replace(/^www\./, "");
+        const allowedHosts = new Set([
+            "youtube.com",
+            "m.youtube.com",
+            "music.youtube.com",
+            "youtu.be",
+            "youtube-nocookie.com"
+        ]);
+        if (!allowedHosts.has(host)) return null;
+
+        if (host === "youtu.be") {
+            const id = url.pathname.split("/").filter(Boolean)[0];
+            return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+        }
+
+        const vParam = url.searchParams.get("v");
+        if (vParam && /^[a-zA-Z0-9_-]{11}$/.test(vParam)) return vParam;
+
+        const parts = url.pathname.split("/").filter(Boolean);
+        const embedIdx = parts.findIndex(p => p === "embed" || p === "shorts" || p === "live");
+        if (embedIdx !== -1 && parts[embedIdx + 1] && /^[a-zA-Z0-9_-]{11}$/.test(parts[embedIdx + 1])) {
+            return parts[embedIdx + 1];
+        }
+    } catch (e) {
+        return null;
+    }
+    return null;
 }
 
 function slugify(text) {
@@ -329,7 +384,7 @@ async function loadSubmissions() {
     const list = document.getElementById("submissionsList");
     const { data, error } = await sb
         .from("song_submissions")
-        .select("id, artist_name, title, slug, lyrics, created_at")
+        .select("id, artist_name, title, slug, lyrics, youtube_url, created_at")
         .order("created_at", { ascending: false });
 
     if (error) {
@@ -342,19 +397,27 @@ async function loadSubmissions() {
         return;
     }
 
-    list.innerHTML = data.map(item => `
-        <li>
-            <div style="flex:1; min-width:0;">
-                <strong>${escapeHtml(item.title)}</strong>
-                <span class="item-sub">Wykonawca: ${escapeHtml(item.artist_name)} · slug: ${escapeHtml(item.slug)}</span>
-                <div class="lyrics-preview">${escapeHtml(item.lyrics)}</div>
-            </div>
-            <div class="row-btns">
-                <button type="button" class="btn-ok" data-accept-id="${escapeHtml(item.id)}">Akceptuj</button>
-                <button type="button" class="btn-del" data-reject-id="${escapeHtml(item.id)}">Wyrzuć</button>
-            </div>
-        </li>
-    `).join("");
+    list.innerHTML = data.map(item => {
+        const vid = extractYouTubeId(item.youtube_url);
+        const embedHtml = vid
+            ? `<div class="sub-iframe-wrap"><iframe src="https://www.youtube.com/embed/${escapeHtml(vid)}" title="Odtwarzacz YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`
+            : `<span class="item-sub">Brak linku YouTube</span>`;
+
+        return `
+            <li>
+                <div style="flex:1; min-width:0;">
+                    <strong>${escapeHtml(item.title)}</strong>
+                    <span class="item-sub">Wykonawca: ${escapeHtml(item.artist_name)} · slug: ${escapeHtml(item.slug)}</span>
+                    ${embedHtml}
+                    <div class="lyrics-preview">${escapeHtml(item.lyrics)}</div>
+                </div>
+                <div class="row-btns">
+                    <button type="button" class="btn-ok" data-accept-id="${escapeHtml(item.id)}">Akceptuj</button>
+                    <button type="button" class="btn-del" data-reject-id="${escapeHtml(item.id)}">Wyrzuć</button>
+                </div>
+            </li>
+        `;
+    }).join("");
 
     list.querySelectorAll("[data-accept-id]").forEach(btn => {
         btn.addEventListener("click", async () => {
@@ -367,11 +430,15 @@ async function loadSubmissions() {
 
             try {
                 const artistId = await getOrCreateArtistId(sub.artist_name);
+                const vid = extractYouTubeId(sub.youtube_url);
+                const normalizedYt = vid ? `https://www.youtube.com/watch?v=${vid}` : null;
+
                 const { error: songErr } = await sb.from("songs").insert({
                     artist_id: artistId,
                     title: sub.title,
                     slug: sub.slug,
-                    lyrics: sub.lyrics
+                    lyrics: sub.lyrics,
+                    youtube_url: normalizedYt
                 });
                 if (songErr) throw songErr;
 
@@ -461,7 +528,7 @@ async function loadSongs() {
     const list = document.getElementById("adminSongsList");
     const { data, error } = await sb
         .from("songs")
-        .select("id, title, slug, artists(name)")
+        .select("id, title, slug, youtube_url, artists(name)")
         .limit(20);
 
     if (error) {
@@ -476,11 +543,12 @@ async function loadSongs() {
 
     list.innerHTML = data.map(s => {
         const artistName = Array.isArray(s.artists) ? s.artists[0]?.name : s.artists?.name;
+        const ytTag = extractYouTubeId(s.youtube_url) ? " · YT ✓" : "";
         return `
             <li>
                 <div>
                     <strong>${escapeHtml(s.title)}</strong>
-                    <span class="item-sub">${escapeHtml(artistName || "—")} · /${escapeHtml(s.slug || "")}</span>
+                    <span class="item-sub">${escapeHtml(artistName || "—")} · /${escapeHtml(s.slug || "")}${ytTag}</span>
                 </div>
                 <button type="button" class="btn-del" data-del-song="${escapeHtml(s.id)}">Usuń</button>
             </li>
@@ -539,16 +607,28 @@ document.getElementById("songForm").addEventListener("submit", async (e) => {
     const artist_id = document.getElementById("songArtist").value;
     const title = titleInput.value.trim();
     const slug = slugInput.value.trim() || slugify(title);
+    const rawYt = document.getElementById("songYoutubeUrl").value.trim();
     const lyrics = document.getElementById("songLyrics").value;
 
     if (!artist_id || !title || !lyrics) return;
+
+    let youtube_url = null;
+    if (rawYt) {
+        const vid = extractYouTubeId(rawYt);
+        if (!vid) {
+            setStatus(msg, "Niepoprawny link YouTube / YouTube Music.", true);
+            return;
+        }
+        youtube_url = `https://www.youtube.com/watch?v=${vid}`;
+    }
 
     setStatus(msg, "Dodawanie utworu...");
     const { error } = await sb.from("songs").insert({
         artist_id,
         title,
         slug,
-        lyrics
+        lyrics,
+        youtube_url
     });
 
     if (error) {
