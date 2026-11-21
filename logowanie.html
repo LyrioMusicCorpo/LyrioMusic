@@ -13,7 +13,7 @@
     } catch (e) {}
 })();
 </script>
-<link rel="stylesheet" href="style.css?v=20261121-2">
+<link rel="stylesheet" href="style.css?v=20261121-3">
 <style>
     .auth-box {
         max-width: 420px;
@@ -53,16 +53,58 @@
     .auth-btn {
         width: 100%;
         padding: 12px 16px;
-        border: 0;
+        border: 1px solid var(--text);
         border-radius: 4px;
         background: var(--text);
         color: var(--bg);
         font: inherit;
         font-weight: 600;
         cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
     }
-    .auth-btn:hover { background: var(--accent); }
-    .auth-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .auth-btn:hover {
+        background: var(--accent);
+        border-color: var(--accent);
+    }
+    .auth-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    .auth-btn-secondary {
+        background: transparent;
+        color: var(--text);
+        border-color: var(--line);
+    }
+    .auth-btn-secondary:hover {
+        background: transparent;
+        border-color: var(--text);
+    }
+    .logged-box {
+        display: none;
+        margin-top: 8px;
+    }
+    .logged-info {
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        margin-bottom: 14px;
+        font-size: 14px;
+    }
+    .logged-info span {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 4px;
+    }
+    .logged-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
     .msg {
         margin-top: 14px;
         font-size: 14px;
@@ -77,6 +119,17 @@
         color: var(--muted);
         text-decoration: underline;
     }
+    .header-panel-link {
+        display: none;
+        margin-left: 12px;
+        padding: 6px 12px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+    }
+    .header-panel-link:hover { border-color: var(--text); }
 </style>
 </head>
 <body>
@@ -87,6 +140,8 @@
         <nav aria-label="Główna nawigacja">
             <a href="./#teksty">Teksty</a>
             <a href="./#wykonawcy">Wykonawcy</a>
+            <a href="./dodaj-tekst.html">Dodaj tekst</a>
+            <a href="./admin.html" class="header-panel-link" id="headerPanelBtn">Panel</a>
         </nav>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Ciemny motyw" aria-pressed="false">
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
@@ -100,7 +155,7 @@
 <main class="wrap">
     <section class="auth-box">
         <h1>Zaloguj się</h1>
-        <p class="sub">Dostęp przez konto Supabase Auth.</p>
+        <p class="sub" id="authSub">Dostęp przez konto Supabase Auth.</p>
 
         <form id="loginForm" autocomplete="on">
             <div class="field">
@@ -113,6 +168,17 @@
             </div>
             <button type="submit" class="auth-btn" id="loginBtn">Zaloguj się</button>
         </form>
+
+        <div class="logged-box" id="loggedBox">
+            <div class="logged-info">
+                <strong id="loggedEmail"></strong>
+                <span id="roleStatus">Sprawdzanie uprawnień...</span>
+            </div>
+            <div class="logged-actions">
+                <a href="./admin.html" class="auth-btn" id="panelBtn">Panel</a>
+                <button type="button" class="auth-btn auth-btn-secondary" id="logoutBtn">Wyloguj się</button>
+            </div>
+        </div>
 
         <div class="msg" id="authMsg" role="status" aria-live="polite"></div>
         <a href="./" class="back-link">← Wróć na stronę główną</a>
@@ -143,15 +209,34 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const form = document.getElementById("loginForm");
 const btn = document.getElementById("loginBtn");
 const msg = document.getElementById("authMsg");
+const loggedBox = document.getElementById("loggedBox");
+const loggedEmail = document.getElementById("loggedEmail");
+const roleStatus = document.getElementById("roleStatus");
+const panelBtn = document.getElementById("panelBtn");
+const headerPanelBtn = document.getElementById("headerPanelBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+const authSub = document.getElementById("authSub");
 
 function setMsg(text, isErr = false) {
     msg.textContent = text;
     msg.className = isErr ? "msg err" : "msg";
 }
 
-async function checkRoleAndRedirect(user) {
-    if (!user) return;
-    setMsg("Sprawdzanie uprawnień...");
+async function showLoggedInState(user) {
+    if (!user) {
+        form.style.display = "block";
+        loggedBox.style.display = "none";
+        headerPanelBtn.style.display = "none";
+        authSub.textContent = "Dostęp przez konto Supabase Auth.";
+        return;
+    }
+
+    form.style.display = "none";
+    loggedBox.style.display = "block";
+    loggedEmail.textContent = `Zalogowano jako: ${user.email || user.id}`;
+    authSub.textContent = "Sesja jest aktywna.";
+    roleStatus.textContent = "Sprawdzanie roli w bazie...";
+    setMsg("");
 
     const { data, error } = await sb
         .from("user_roles")
@@ -160,34 +245,21 @@ async function checkRoleAndRedirect(user) {
         .limit(1);
 
     if (error) {
-        console.error("Błąd odczytu roli:", error);
-        setMsg(`Błąd roli: ${error.message}`, true);
+        roleStatus.textContent = `Błąd odczytu roli: ${error.message}`;
+        panelBtn.style.display = "none";
+        headerPanelBtn.style.display = "none";
         return;
     }
 
     const row = Array.isArray(data) ? data[0] : null;
     if (row && row.role === "admin") {
-        window.location.href = "./admin.html";
+        roleStatus.textContent = "Rola: admin — masz dostęp do panelu.";
+        panelBtn.style.display = "inline-flex";
+        headerPanelBtn.style.display = "inline-flex";
     } else {
-        setMsg("Zalogowano, ale to konto nie ma roli admina.");
-    }
-}
-    // Dopasuj nazwę kolumny roli/user_id jeśli w user_roles masz inne nazwy
-    const { data, error } = await sb
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-    if (error) {
-        setMsg("Zalogowano, ale nie udało się sprawdzić roli w bazie.", true);
-        return;
-    }
-
-    if (data && data.role === "admin") {
-        window.location.href = "./admin.html";
-    } else {
-        setMsg("Zalogowano, ale to konto nie ma roli admina.");
+        roleStatus.textContent = "Rola: zwykły użytkownik (brak dostępu do panelu admina).";
+        panelBtn.style.display = "none";
+        headerPanelBtn.style.display = "none";
     }
 }
 
@@ -203,17 +275,22 @@ form.addEventListener("submit", async (e) => {
 
     btn.disabled = false;
     if (error) {
-        setMsg("Nieprawidłowy e-mail lub hasło.", true);
+        setMsg(`Błąd logowania: ${error.message}`, true);
         return;
     }
 
-    await checkRoleAndRedirect(data.user);
+    await showLoggedInState(data.user);
 });
 
-// Jeśli użytkownik ma już aktywną sesję
+logoutBtn.addEventListener("click", async () => {
+    await sb.auth.signOut();
+    await showLoggedInState(null);
+    setMsg("Wylogowano.");
+});
+
 sb.auth.getSession().then(({ data }) => {
     if (data?.session?.user) {
-        checkRoleAndRedirect(data.session.user);
+        showLoggedInState(data.session.user);
     }
 });
 </script>
