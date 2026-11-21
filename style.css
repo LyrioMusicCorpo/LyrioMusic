@@ -1,244 +1,195 @@
-:root {
-    color-scheme: light;
-    --bg: #f4f1ea;
-    --text: #1c1a17;
-    --muted: #5c5750;
-    --line: #d6d0c4;
-    --accent: #b8381f;
-    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+// ==========================================
+// 1. KONFIGURACJA SUPABASE
+// ==========================================
+const SUPABASE_URL = "https://oxkstekhjumgbdjzxsdr.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_IU3Bb6fXNt6mZlJGx3JHjA_Ff_Otitd";
+
+// Schemat z Table Editor:
+// songs: id (uuid), artist_id (uuid -> artists), title (text), slug (text), lyrics (text)
+// Jeśli w tabeli songs masz też kolumny np. views albo created_at, możesz je dodać poniżej.
+const DB_CONFIG = {
+    songsTable: "songs",
+    artistsTable: "artists",
+    colId: "id",
+    colTitle: "title",
+    colSlug: "slug",
+    colArtistId: "artist_id",
+    colArtistName: "name",      // zmień jeśli w tabeli artists nazwa wykonawcy nazywa się inaczej (np. title)
+    colViews: null,             // np. "views" — zostaw null, jeśli jeszcze nie ma tej kolumny w songs
+    colCreated: null            // np. "created_at" — zostaw null, jeśli jeszcze nie ma tej kolumny w songs
+};
+
+let supabaseClient = null;
+if (window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY) {
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
-:root[data-theme="dark"] {
-    color-scheme: dark;
-    --bg: #151311;
-    --text: #efeae0;
-    --muted: #a39d92;
-    --line: #34302b;
-    --accent: #ee7a5c;
+// ==========================================
+// 2. OBSŁUGA MOTYWU (LIGHT / DARK)
+// ==========================================
+const root = document.documentElement;
+const toggle = document.getElementById("themeToggle");
+
+function applyTheme(theme) {
+    root.dataset.theme = theme;
+    toggle.setAttribute("aria-pressed", theme === "dark");
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+applyTheme(root.dataset.theme || "light");
 
-body {
-    font-family: var(--sans);
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.5;
+toggle.addEventListener("click", () => {
+    const next = root.dataset.theme === "dark" ? "light" : "dark";
+    applyTheme(next);
+    try { localStorage.setItem("lyrio-theme", next); } catch (e) {}
+});
+
+// ==========================================
+// 3. POMOCNICZE FUNKCJE DANYCH I RENDEROWANIA
+// ==========================================
+function escapeHtml(str) {
+    return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
 }
 
-a { color: inherit; text-decoration: none; }
-
-:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 3px;
+function getArtistName(row) {
+    const rel = row[DB_CONFIG.artistsTable];
+    if (Array.isArray(rel)) {
+        return rel[0]?.[DB_CONFIG.colArtistName] || "Nieznany wykonawca";
+    }
+    if (rel && typeof rel === "object") {
+        return rel[DB_CONFIG.colArtistName] || "Nieznany wykonawca";
+    }
+    return "Nieznany wykonawca";
 }
 
-.wrap {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 0 24px;
+function renderSongList(containerId, items, emptyMessage) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    if (!items || items.length === 0) {
+        container.innerHTML = `<li><a href="#"><span><span class="title">${escapeHtml(emptyMessage)}</span><span class="artist">—</span></span></a></li>`;
+        return;
+    }
+
+    container.innerHTML = items.map(song => {
+        const key = encodeURIComponent(song[DB_CONFIG.colSlug] || song[DB_CONFIG.colId] || "");
+        const title = escapeHtml(song[DB_CONFIG.colTitle] || "Bez tytułu");
+        const artist = escapeHtml(getArtistName(song));
+        return `<li><a href="/utwor?id=${key}"><span><span class="title">${title}</span><span class="artist">${artist}</span></span></a></li>`;
+    }).join("");
 }
 
-/* nagłówek */
-.site-header .wrap {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px 32px;
-    padding-top: 14px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--line);
+function buildSelectQuery() {
+    const baseCols = [DB_CONFIG.colId, DB_CONFIG.colTitle, DB_CONFIG.colSlug, DB_CONFIG.colArtistId];
+    if (DB_CONFIG.colViews) baseCols.push(DB_CONFIG.colViews);
+    if (DB_CONFIG.colCreated) baseCols.push(DB_CONFIG.colCreated);
+    return `${baseCols.join(", ")}, ${DB_CONFIG.artistsTable} (${DB_CONFIG.colArtistName})`;
 }
 
-.logo {
-    font-family: var(--serif);
-    font-size: 26px;
-    font-weight: 700;
-    margin-right: auto;
+// ==========================================
+// 4. POBIERANIE DANYCH Z SUPABASE
+// ==========================================
+async function loadHomepageSongs() {
+    if (!supabaseClient) {
+        renderSongList("popularSongs", [], "Brak klienta Supabase");
+        renderSongList("latestSongs", [], "Brak klienta Supabase");
+        return;
+    }
+
+    try {
+        let popularQuery = supabaseClient
+            .from(DB_CONFIG.songsTable)
+            .select(buildSelectQuery())
+            .limit(5);
+
+        if (DB_CONFIG.colViews) {
+            popularQuery = popularQuery.order(DB_CONFIG.colViews, { ascending: false });
+        }
+
+        const { data: popular, error: popErr } = await popularQuery;
+        if (popErr) throw popErr;
+        renderSongList("popularSongs", popular, "Brak utworów w bazie");
+
+        let latestQuery = supabaseClient
+            .from(DB_CONFIG.songsTable)
+            .select(buildSelectQuery())
+            .limit(5);
+
+        if (DB_CONFIG.colCreated) {
+            latestQuery = latestQuery.order(DB_CONFIG.colCreated, { ascending: false });
+        }
+
+        const { data: latest, error: latErr } = await latestQuery;
+        if (latErr) throw latErr;
+        renderSongList("latestSongs", latest, "Brak utworów w bazie");
+
+    } catch (err) {
+        console.error("Błąd Supabase:", err.message);
+        renderSongList("popularSongs", [], "Błąd połączenia z bazą");
+        renderSongList("latestSongs", [], "Błąd połączenia z bazą");
+    }
 }
 
-.logo span { color: var(--accent); }
+// ==========================================
+// 5. WYSZUKIWARKA I FILTR A-Z
+// ==========================================
+const searchForm = document.getElementById("searchForm");
+const searchInput = document.getElementById("q");
 
-.site-header nav {
-    display: flex;
-    gap: 24px;
-    font-size: 15px;
+if (searchForm && searchInput) {
+    searchForm.addEventListener("submit", async (e) => {
+        if (!supabaseClient) return;
+        e.preventDefault();
+
+        const query = searchInput.value.trim();
+        if (!query) {
+            loadHomepageSongs();
+            return;
+        }
+
+        const { data, error } = await supabaseClient
+            .from(DB_CONFIG.songsTable)
+            .select(buildSelectQuery())
+            .ilike(DB_CONFIG.colTitle, `%${query}%`)
+            .limit(10);
+
+        if (!error) {
+            const firstHeading = document.querySelector("#teksty section:first-child h2");
+            if (firstHeading) firstHeading.textContent = `Wyniki dla: „${query}”`;
+            renderSongList("popularSongs", data, "Brak wyników wyszukiwania");
+        }
+    });
 }
 
-.site-header nav a:hover,
-.login:hover { color: var(--accent); }
+document.querySelectorAll("#alphabetNav a").forEach(link => {
+    link.addEventListener("click", async (e) => {
+        if (!supabaseClient) return;
+        e.preventDefault();
 
-.login { font-size: 15px; font-weight: 600; }
+        const letter = link.dataset.letter;
+        const { data, error } = await supabaseClient
+            .from(DB_CONFIG.songsTable)
+            .select(buildSelectQuery())
+            .limit(25);
 
-.theme-toggle {
-    display: grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    background: none;
-    color: var(--text);
-    cursor: pointer;
-}
+        if (!error) {
+            const filtered = (data || []).filter(row => {
+                const name = getArtistName(row).trim();
+                if (!name) return false;
+                if (letter === "0-9") return /^[0-9]/.test(name);
+                return name.toUpperCase().startsWith(letter.toUpperCase());
+            });
 
-.theme-toggle:hover { border-color: var(--text); }
+            const firstHeading = document.querySelector("#teksty section:first-child h2");
+            if (firstHeading) firstHeading.textContent = `Wykonawcy na literę: ${letter}`;
+            renderSongList("popularSongs", filtered, `Brak wykonawców na ${letter}`);
+            document.getElementById("teksty")?.scrollIntoView({ behavior: "smooth" });
+        }
+    });
+});
 
-/* hero */
-.hero { padding: 44px 0 40px; }
-
-.hero h1 {
-    font-family: var(--serif);
-    font-size: clamp(2.4rem, 1.2rem + 5vw, 4.5rem);
-    line-height: 1.05;
-    letter-spacing: -0.02em;
-    max-width: 14ch;
-    margin-bottom: 12px;
-}
-
-.hero p {
-    color: var(--muted);
-    max-width: 46ch;
-    margin-bottom: 22px;
-}
-
-.search {
-    display: flex;
-    max-width: 620px;
-    border: 1.5px solid var(--text);
-    border-radius: 4px;
-}
-
-.search input {
-    flex: 1;
-    min-width: 0;
-    padding: 14px 16px;
-    border: 0;
-    background: transparent;
-    color: var(--text);
-    font: inherit;
-    font-size: 17px;
-}
-
-.search input:focus-visible { outline-offset: -3px; }
-.search input::placeholder { color: var(--muted); }
-
-.search button {
-    padding: 0 24px;
-    border: 0;
-    background: var(--text);
-    color: var(--bg);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.search button:hover { background: var(--accent); }
-
-.visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-}
-
-/* listy utworów */
-.lists {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 48px;
-    padding: 32px 0;
-    border-top: 1px solid var(--line);
-}
-
-.lists h2,
-.artists h2 {
-    font-family: var(--serif);
-    font-size: 24px;
-    margin-bottom: 10px;
-}
-
-.songs { list-style: none; }
-
-.songs li { border-top: 1px solid var(--line); }
-.songs li:last-child { border-bottom: 1px solid var(--line); }
-
-.songs a {
-    display: flex;
-    align-items: baseline;
-    gap: 14px;
-    padding: 9px 0;
-}
-
-.songs .title { display: block; font-weight: 600; }
-.songs .artist { display: block; font-size: 14px; color: var(--muted); }
-.songs a:hover .title { color: var(--accent); }
-
-.ranked { counter-reset: rank; }
-
-.ranked a::before {
-    counter-increment: rank;
-    content: counter(rank, decimal-leading-zero);
-    content: counter(rank, decimal-leading-zero) / "";
-    font-family: var(--serif);
-    font-size: 22px;
-    color: var(--muted);
-    min-width: 2ch;
-}
-
-/* wykonawcy */
-.artists {
-    padding: 32px 0 40px;
-    border-top: 1px solid var(--line);
-}
-
-.artists p {
-    color: var(--muted);
-    margin-bottom: 12px;
-}
-
-.alphabet {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0 18px;
-    font-family: var(--serif);
-    font-size: 24px;
-}
-
-.alphabet a {
-    padding: 4px 0;
-    text-decoration: underline;
-    text-decoration-color: transparent;
-    text-underline-offset: 6px;
-    text-decoration-thickness: 2px;
-}
-
-.alphabet a:hover {
-    color: var(--accent);
-    text-decoration-color: currentColor;
-}
-
-/* stopka */
-.site-footer .wrap {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    padding-top: 16px;
-    padding-bottom: 16px;
-    border-top: 1px solid var(--line);
-    font-size: 14px;
-    color: var(--muted);
-}
-
-@media (max-width: 760px) {
-    .hero { padding: 28px 0 28px; }
-    .lists { grid-template-columns: 1fr; gap: 32px; }
-    .site-header nav { order: 3; width: 100%; }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-    a, button { transition: color .15s, background-color .15s, border-color .15s; }
-}
+// Start
+loadHomepageSongs();
