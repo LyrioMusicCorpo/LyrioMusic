@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tłumaczenia — LyrioMusic</title>
+<script>
+(function () {
+    try {
+        var t = localStorage.getItem("lyrio-theme");
+        if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+    } catch (e) {}
+})();
+</script>
+<link rel="stylesheet" href="style.css?v=20261121-5">
+<style>
+    .tr-head {
+        padding: 36px 0 24px;
+        border-bottom: 1px solid var(--line);
+    }
+    .tr-head h1 {
+        font-family: var(--serif);
+        font-size: 34px;
+        margin-bottom: 8px;
+    }
+    .tr-head p {
+        color: var(--muted);
+        font-size: 15px;
+    }
+    .tr-list {
+        display: grid;
+        gap: 18px;
+        padding: 28px 0 56px;
+    }
+    .tr-card {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 20px;
+    }
+    .tr-card-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .tr-title {
+        font-family: var(--serif);
+        font-size: 22px;
+    }
+    .tr-meta {
+        font-size: 13px;
+        color: var(--muted);
+    }
+    .tr-cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+        margin-top: 12px;
+    }
+    @media (max-width: 720px) {
+        .tr-cols { grid-template-columns: 1fr; }
+    }
+    .tr-box {
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+        white-space: pre-line;
+        font-size: 14px;
+        line-height: 1.6;
+    }
+    .tr-label {
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        margin-bottom: 6px;
+    }
+</style>
+</head>
+<body>
+
+<header class="wrap site-head">
+    <a href="./" class="brand">LyrioMusic</a>
+    <nav class="nav">
+        <a href="./">Teksty</a>
+        <a href="tlumaczenia.html" aria-current="page">Tłumaczenia</a>
+        <a href="dodaj-tekst.html">Dodaj tekst</a>
+        <a href="profil.html">Profil</a>
+    </nav>
+</header>
+
+<main class="wrap">
+    <section class="tr-head">
+        <h1>Tłumaczenia utworów</h1>
+        <p>Porównanie oryginalnych tekstów z polskimi tłumaczeniami. Tłumaczenia przez AI są wykonywane z wykrytego języka na język polski.</p>
+    </section>
+
+    <section class="tr-list" id="translationsList">
+        <article class="tr-card">
+            <div class="tr-card-top">
+                <h2 class="tr-title">Przykładowy utwór</h2>
+                <span class="tr-meta">Artysta • AI: wykryto → PL</span>
+            </div>
+            <div class="tr-cols">
+                <div class="tr-box">
+                    <div class="tr-label">Oryginał (wykryty język)</div>
+                    Pierwsze tłumaczenia pojawią się tutaj po podpięciu danych lub dodaniu ich przez formularz.
+                </div>
+                <div class="tr-box">
+                    <div class="tr-label">Tłumaczenie na polski (AI: wykryto → PL)</div>
+                    Tłumaczenia przez AI są tworzone z automatycznie wykrytego języka na polski.
+                </div>
+            </div>
+        </article>
+    </section>
+</main>
+
+</body>
+</html>
