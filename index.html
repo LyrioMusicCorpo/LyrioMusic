@@ -94,5 +94,32 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="script.js?v=20261121-2"></script>
+<script>
+(function () {
+    const url = "https://oxkstekhjumgbdjzxsdr.supabase.co";
+    const key = "sb_publishable_IU3Bb6fXNt6mZlJGx3JHjA_Ff_Otitd";
+    const client = (typeof sb !== "undefined" && sb?.auth)
+        ? sb
+        : (window.supabase ? window.supabase.createClient(url, key) : null);
+
+    if (!client) return;
+
+    client.auth.getSession().then(async ({ data }) => {
+        const user = data?.session?.user;
+        const navPanel = document.getElementById("navPanelLink");
+        if (!user || !navPanel) return;
+
+        const { data: rows } = await client
+            .from("user_roles")
+            .select("role")
+            .eq("user_id", user.id)
+            .limit(1);
+
+        if (Array.isArray(rows) && rows[0]?.role === "admin") {
+            navPanel.style.display = "";
+        }
+    });
+})();
+</script>
 </body>
 </html>
