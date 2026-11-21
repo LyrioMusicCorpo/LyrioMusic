@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tekst utworu — LyrioMusic</title>
+<script>
+(function () {
+    try {
+        var t = localStorage.getItem("lyrio-theme");
+        if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+    } catch (e) {}
+})();
+</script>
+<link rel="stylesheet" href="style.css?v=20261121-3">
+<style>
+    .song-wrap {
+        max-width: 760px;
+        margin: 40px auto 64px;
+    }
+    .song-back {
+        display: inline-block;
+        margin-bottom: 20px;
+        font-size: 14px;
+        color: var(--muted);
+        text-decoration: underline;
+    }
+    .song-artist {
+        font-size: 15px;
+        color: var(--muted);
+        margin-bottom: 6px;
+    }
+    .song-title {
+        font-family: var(--serif);
+        font-size: 36px;
+        line-height: 1.2;
+        margin-bottom: 24px;
+    }
+    .song-player {
+        margin-bottom: 28px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        overflow: hidden;
+        aspect-ratio: 16 / 9;
+        background: #000;
+        display: none;
+    }
+    .song-player iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        display: block;
+    }
+    .song-lyrics {
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        white-space: pre-line;
+        line-height: 1.75;
+        font-size: 16px;
+    }
+    .song-msg {
+        color: var(--muted);
+        font-size: 15px;
+    }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+    <div class="wrap">
+        <a href="./" class="logo">Lyrio<span>Music</span></a>
+        <nav aria-label="Główna nawigacja">
+            <a href="./#teksty">Teksty</a>
+            <a href="./#wykonawcy">Wykonawcy</a>
+            <a href="./dodaj-tekst.html">Dodaj tekst</a>
+        </nav>
+        <a href="./logowanie.html" class="login">Zaloguj się</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Ciemny motyw" aria-pressed="false">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+                <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>
+            </svg>
+        </button>
+    </div>
+</header>
+
+<main class="wrap">
+    <article class="song-wrap">
+        <a href="./" class="song-back">← Wróć do utworów</a>
+        <p class="song-msg" id="songStatus">Ładowanie utworu...</p>
+
+        <div id="songArticle" style="display:none;">
+            <div class="song-artist" id="songArtist"></div>
+            <h1 class="song-title" id="songTitle"></h1>
+
+            <div class="song-player" id="songPlayerWrap">
+                <iframe
+                    id="songPlayerFrame"
+                    title="Odtwarzacz YouTube"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerpolicy="strict-origin-when-cross-origin"
+                    allowfullscreen></iframe>
+            </div>
+
+            <div class="song-lyrics" id="songLyrics"></div>
+        </div>
+    </article>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://oxkstekhjumgbdjzxsdr.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_IU3Bb6fXNt6mZlJGx3JHjA_Ff_Otitd";
+
+const root = document.documentElement;
+const toggle = document.getElementById("themeToggle");
+function applyTheme(t) {
+    root.dataset.theme = t;
+    if (toggle) toggle.setAttribute("aria-pressed", t === "dark");
+}
+applyTheme(root.dataset.theme || "light");
+if (toggle) {
+    toggle.addEventListener("click", () => {
+        const next = root.dataset.theme === "dark" ? "light" : "dark";
+        applyTheme(next);
+        try { localStorage.setItem("lyrio-theme", next); } catch (e) {}
+    });
+}
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function extractYouTubeId(rawUrl) {
+    if (!rawUrl) return null;
+    const trimmed = rawUrl.trim();
+    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+
+    try {
+        const url = new URL(trimmed);
+        const host = url.hostname.replace(/^www\./, "");
+        const allowedHosts = new Set([
+            "youtube.com",
+            "m.youtube.com",
+            "music.youtube.com",
+            "youtu.be",
+            "youtube-nocookie.com"
+        ]);
+        if (!allowedHosts.has(host)) return null;
+
+        if (host === "youtu.be") {
+            const id = url.pathname.split("/").filter(Boolean)[0];
+            return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+        }
+
+        const vParam = url.searchParams.get("v");
+        if (vParam && /^[a-zA-Z0-9_-]{11}$/.test(vParam)) return vParam;
+
+        const parts = url.pathname.split("/").filter(Boolean);
+        const embedIdx = parts.findIndex(p => p === "embed" || p === "shorts" || p === "live");
+        if (embedIdx !== -1 && parts[embedIdx + 1] && /^[a-zA-Z0-9_-]{11}$/.test(parts[embedIdx + 1])) {
+            return parts[embedIdx + 1];
+        }
+    } catch (e) {
+        return null;
+    }
+    return null;
+}
+
+async function loadSong() {
+    const statusEl = document.getElementById("songStatus");
+    const articleEl = document.getElementById("songArticle");
+    const params = new URLSearchParams(window.location.search);
+    const idParam = params.get("id");
+    const slugParam = params.get("slug");
+
+    if (!idParam && !slugParam) {
+        statusEl.textContent = "Brak identyfikatora utworu w adresie.";
+        return;
+    }
+
+    let query = sb
+        .from("songs")
+        .select("id, title, slug, lyrics, youtube_url, artists(name)");
+
+    if (slugParam) {
+        query = query.eq("slug", slugParam);
+    } else if (/^[0-9a-fA-F-]{36}$/.test(idParam)) {
+        query = query.eq("id", idParam);
+    } else {
+        query = query.eq("slug", idParam);
+    }
+
+    const { data, error } = await query.limit(1);
+
+    if (error) {
+        statusEl.textContent = "Błąd ładowania utworu: " + error.message;
+        return;
+    }
+
+    const song = Array.isArray(data) ? data[0] : null;
+    if (!song) {
+        statusEl.textContent = "Nie znaleziono takiego utworu.";
+        return;
+    }
+
+    const artistName = Array.isArray(song.artists) ? song.artists[0]?.name : song.artists?.name;
+    document.title = `${song.title} — LyrioMusic`;
+    document.getElementById("songArtist").textContent = artistName || "Wykonawca nieznany";
+    document.getElementById("songTitle").textContent = song.title;
+    document.getElementById("songLyrics").textContent = song.lyrics || "";
+
+    const vid = extractYouTubeId(song.youtube_url);
+    const playerWrap = document.getElementById("songPlayerWrap");
+    const playerFrame = document.getElementById("songPlayerFrame");
+    if (vid) {
+        playerFrame.src = `https://www.youtube.com/embed/${encodeURIComponent(vid)}`;
+        playerWrap.style.display = "block";
+    } else {
+        playerWrap.style.display = "none";
+    }
+
+    statusEl.style.display = "none";
+    articleEl.style.display = "block";
+}
+
+loadSong();
+</script>
+</body>
+</html>
