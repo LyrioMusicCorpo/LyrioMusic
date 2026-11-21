@@ -1,0 +1,244 @@
+:root {
+    color-scheme: light;
+    --bg: #f4f1ea;
+    --text: #1c1a17;
+    --muted: #5c5750;
+    --line: #d6d0c4;
+    --accent: #b8381f;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #151311;
+    --text: #efeae0;
+    --muted: #a39d92;
+    --line: #34302b;
+    --accent: #ee7a5c;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+}
+
+a { color: inherit; text-decoration: none; }
+
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+}
+
+.wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+/* nagłówek */
+.site-header .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 32px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+}
+
+.logo {
+    font-family: var(--serif);
+    font-size: 26px;
+    font-weight: 700;
+    margin-right: auto;
+}
+
+.logo span { color: var(--accent); }
+
+.site-header nav {
+    display: flex;
+    gap: 24px;
+    font-size: 15px;
+}
+
+.site-header nav a:hover,
+.login:hover { color: var(--accent); }
+
+.login { font-size: 15px; font-weight: 600; }
+
+.theme-toggle {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: none;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.theme-toggle:hover { border-color: var(--text); }
+
+/* hero */
+.hero { padding: 44px 0 40px; }
+
+.hero h1 {
+    font-family: var(--serif);
+    font-size: clamp(2.4rem, 1.2rem + 5vw, 4.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    max-width: 14ch;
+    margin-bottom: 12px;
+}
+
+.hero p {
+    color: var(--muted);
+    max-width: 46ch;
+    margin-bottom: 22px;
+}
+
+.search {
+    display: flex;
+    max-width: 620px;
+    border: 1.5px solid var(--text);
+    border-radius: 4px;
+}
+
+.search input {
+    flex: 1;
+    min-width: 0;
+    padding: 14px 16px;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 17px;
+}
+
+.search input:focus-visible { outline-offset: -3px; }
+.search input::placeholder { color: var(--muted); }
+
+.search button {
+    padding: 0 24px;
+    border: 0;
+    background: var(--text);
+    color: var(--bg);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.search button:hover { background: var(--accent); }
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* listy utworów */
+.lists {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 48px;
+    padding: 32px 0;
+    border-top: 1px solid var(--line);
+}
+
+.lists h2,
+.artists h2 {
+    font-family: var(--serif);
+    font-size: 24px;
+    margin-bottom: 10px;
+}
+
+.songs { list-style: none; }
+
+.songs li { border-top: 1px solid var(--line); }
+.songs li:last-child { border-bottom: 1px solid var(--line); }
+
+.songs a {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 9px 0;
+}
+
+.songs .title { display: block; font-weight: 600; }
+.songs .artist { display: block; font-size: 14px; color: var(--muted); }
+.songs a:hover .title { color: var(--accent); }
+
+.ranked { counter-reset: rank; }
+
+.ranked a::before {
+    counter-increment: rank;
+    content: counter(rank, decimal-leading-zero);
+    content: counter(rank, decimal-leading-zero) / "";
+    font-family: var(--serif);
+    font-size: 22px;
+    color: var(--muted);
+    min-width: 2ch;
+}
+
+/* wykonawcy */
+.artists {
+    padding: 32px 0 40px;
+    border-top: 1px solid var(--line);
+}
+
+.artists p {
+    color: var(--muted);
+    margin-bottom: 12px;
+}
+
+.alphabet {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 18px;
+    font-family: var(--serif);
+    font-size: 24px;
+}
+
+.alphabet a {
+    padding: 4px 0;
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 6px;
+    text-decoration-thickness: 2px;
+}
+
+.alphabet a:hover {
+    color: var(--accent);
+    text-decoration-color: currentColor;
+}
+
+/* stopka */
+.site-footer .wrap {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: 16px;
+    padding-bottom: 16px;
+    border-top: 1px solid var(--line);
+    font-size: 14px;
+    color: var(--muted);
+}
+
+@media (max-width: 760px) {
+    .hero { padding: 28px 0 28px; }
+    .lists { grid-template-columns: 1fr; gap: 32px; }
+    .site-header nav { order: 3; width: 100%; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    a, button { transition: color .15s, background-color .15s, border-color .15s; }
+}
