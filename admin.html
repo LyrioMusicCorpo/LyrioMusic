@@ -408,6 +408,7 @@ async function loadSubmissions() {
                 <div style="flex:1; min-width:0;">
                     <strong>${escapeHtml(item.title)}</strong>
                     <span class="item-sub">Wykonawca: ${escapeHtml(item.artist_name)} · slug: ${escapeHtml(item.slug)}</span>
+                    <span class="item-sub">Udostępnił: ${escapeHtml(item.submitter_name || "Gość")}</span>
                     ${embedHtml}
                     <div class="lyrics-preview">${escapeHtml(item.lyrics)}</div>
                 </div>
@@ -424,7 +425,6 @@ async function loadSubmissions() {
             const id = btn.getAttribute("data-accept-id");
             const sub = data.find(x => String(x.id) === String(id));
             if (!sub) return;
-
             btn.disabled = true;
             setStatus(modMsg, "Akceptowanie i publikowanie utworu...");
 
@@ -438,7 +438,9 @@ async function loadSubmissions() {
                     title: sub.title,
                     slug: sub.slug,
                     lyrics: sub.lyrics,
-                    youtube_url: normalizedYt
+                   youtube_url: normalizedYt,
+                submitted_by: sub.submitted_by || null,
+                submitter_name: sub.submitter_name || "Gość"
                 });
                 if (songErr) throw songErr;
 
