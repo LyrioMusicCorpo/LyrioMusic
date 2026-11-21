@@ -153,6 +153,25 @@ async function checkRoleAndRedirect(user) {
     if (!user) return;
     setMsg("Sprawdzanie uprawnień...");
 
+    const { data, error } = await sb
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .limit(1);
+
+    if (error) {
+        console.error("Błąd odczytu roli:", error);
+        setMsg(`Błąd roli: ${error.message}`, true);
+        return;
+    }
+
+    const row = Array.isArray(data) ? data[0] : null;
+    if (row && row.role === "admin") {
+        window.location.href = "./admin.html";
+    } else {
+        setMsg("Zalogowano, ale to konto nie ma roli admina.");
+    }
+}
     // Dopasuj nazwę kolumny roli/user_id jeśli w user_roles masz inne nazwy
     const { data, error } = await sb
         .from("user_roles")
