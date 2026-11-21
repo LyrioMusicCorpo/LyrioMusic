@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dodaj tekst — LyrioMusic</title>
+<script>
+(function () {
+    try {
+        var t = localStorage.getItem("lyrio-theme");
+        if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+    } catch (e) {}
+})();
+</script>
+<link rel="stylesheet" href="style.css?v=20261121-2">
+<style>
+    .submit-box {
+        max-width: 640px;
+        margin: 40px auto 56px;
+        padding: 28px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+    }
+    .submit-box h1 {
+        font-family: var(--serif);
+        font-size: 32px;
+        margin-bottom: 8px;
+    }
+    .submit-box p.sub {
+        color: var(--muted);
+        margin-bottom: 22px;
+        font-size: 15px;
+    }
+    .field { margin-bottom: 16px; }
+    .field label {
+        display: block;
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 6px;
+    }
+    .field input, .field textarea {
+        width: 100%;
+        padding: 11px 14px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+    }
+    .field textarea {
+        min-height: 200px;
+        resize: vertical;
+        line-height: 1.6;
+    }
+    .submit-btn {
+        padding: 12px 22px;
+        border: 0;
+        border-radius: 4px;
+        background: var(--text);
+        color: var(--bg);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .submit-btn:hover { background: var(--accent); }
+    .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .msg {
+        margin-top: 14px;
+        font-size: 14px;
+        color: var(--muted);
+        min-height: 20px;
+    }
+    .msg.err { color: var(--accent); }
+    .back-link {
+        display: inline-block;
+        margin-top: 18px;
+        font-size: 14px;
+        color: var(--muted);
+        text-decoration: underline;
+    }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+    <div class="wrap">
+        <a href="./" class="logo">Lyrio<span>Music</span></a>
+        <nav aria-label="Główna nawigacja">
+            <a href="./#teksty">Teksty</a>
+            <a href="./#wykonawcy">Wykonawcy</a>
+            <a href="./dodaj-tekst.html">Dodaj tekst</a>
+        </nav>
+        <a href="./logowanie.html" class="login">Zaloguj się</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Ciemny motyw" aria-pressed="false">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+                <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>
+            </svg>
+        </button>
+    </div>
+</header>
+
+<main class="wrap">
+    <section class="submit-box">
+        <h1>Dodaj tekst piosenki</h1>
+        <p class="sub">Zgłoszenie trafi do moderacji — po akceptacji pojawi się na stronie.</p>
+
+        <form id="submitSongForm">
+            <div class="field">
+                <label for="artistName">Wykonawca</label>
+                <input id="artistName" type="text" required placeholder="np. Sobel">
+            </div>
+            <div class="field">
+                <label for="songTitle">Tytuł utworu</label>
+                <input id="songTitle" type="text" required placeholder="np. Impreza">
+            </div>
+            <div class="field">
+                <label for="lyricsText">Tekst piosenki</label>
+                <textarea id="lyricsText" required placeholder="Wklej lub wpisz tekst utworu..."></textarea>
+            </div>
+            <button type="submit" class="submit-btn" id="submitBtn">Wyślij do akceptacji</button>
+        </form>
+
+        <div class="msg" id="submitMsg" role="status" aria-live="polite"></div>
+        <a href="./" class="back-link">← Wróć na stronę główną</a>
+    </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://oxkstekhjumgbdjzxsdr.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_IU3Bb6fXNt6mZlJGx3JHjA_Ff_Otitd";
+
+const root = document.documentElement;
+const toggle = document.getElementById("themeToggle");
+function applyTheme(t) {
+    root.dataset.theme = t;
+    if (toggle) toggle.setAttribute("aria-pressed", t === "dark");
+}
+applyTheme(root.dataset.theme || "light");
+if (toggle) {
+    toggle.addEventListener("click", () => {
+        const next = root.dataset.theme === "dark" ? "light" : "dark";
+        applyTheme(next);
+        try { localStorage.setItem("lyrio-theme", next); } catch (e) {}
+    });
+}
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const form = document.getElementById("submitSongForm");
+const btn = document.getElementById("submitBtn");
+const msg = document.getElementById("submitMsg");
+
+function slugify(text) {
+    return text
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/ł/g, "l")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+}
+
+function setMsg(text, isErr = false) {
+    msg.textContent = text;
+    msg.className = isErr ? "msg err" : "msg";
+}
+
+form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const artist_name = document.getElementById("artistName").value.trim();
+    const title = document.getElementById("songTitle").value.trim();
+    const lyrics = document.getElementById("lyricsText").value.trim();
+
+    if (!artist_name || !title || !lyrics) return;
+
+    const baseSlug = slugify(`${artist_name}-${title}`) || `utwor-${Date.now()}`;
+    const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+
+    btn.disabled = true;
+    setMsg("Wysyłanie zgłoszenia...");
+
+    const { error } = await sb.from("song_submissions").insert({
+        artist_name,
+        title,
+        slug,
+        lyrics
+    });
+
+    btn.disabled = false;
+    if (error) {
+        setMsg("Nie udało się wysłać tekstu: " + error.message, true);
+        return;
+    }
+
+    form.reset();
+    setMsg("Tekst wysłany! Czeka na akceptację administratora.");
+});
+</script>
+</body>
+</html>
