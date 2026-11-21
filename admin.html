@@ -56,7 +56,9 @@
         padding: 24px;
         border: 1px solid var(--line);
         border-radius: 6px;
+        margin-bottom: 32px;
     }
+    .grid-2 .card { margin-bottom: 0; }
     .card h2 { font-family: var(--serif); font-size: 22px; margin-bottom: 14px; }
     .field { margin-bottom: 14px; }
     .field label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
@@ -77,13 +79,37 @@
     .item-list li {
         display: flex;
         justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        padding: 10px 0;
+        align-items: flex-start;
+        gap: 16px;
+        padding: 12px 0;
         border-top: 1px solid var(--line);
     }
     .item-list li:last-child { border-bottom: 1px solid var(--line); }
     .item-sub { display: block; font-size: 13px; color: var(--muted); }
+    .lyrics-preview {
+        margin-top: 8px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font-size: 13px;
+        color: var(--muted);
+        white-space: pre-wrap;
+        max-height: 140px;
+        overflow-y: auto;
+    }
+    .row-btns { display: flex; gap: 8px; flex-shrink: 0; }
+    .btn-ok {
+        padding: 6px 12px;
+        border: 1px solid var(--text);
+        border-radius: 4px;
+        background: var(--text);
+        color: var(--bg);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .btn-ok:hover { background: var(--accent); border-color: var(--accent); }
     .btn-del {
         padding: 6px 10px;
         border: 1px solid var(--line);
@@ -107,6 +133,7 @@
         <nav aria-label="Główna nawigacja">
             <a href="./#teksty">Teksty</a>
             <a href="./#wykonawcy">Wykonawcy</a>
+            <a href="./dodaj-tekst.html">Dodaj tekst</a>
         </nav>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Ciemny motyw" aria-pressed="false">
             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
@@ -132,6 +159,14 @@
             </div>
         </div>
 
+        <section class="card">
+            <h2>Zgłoszenia od użytkowników (do akceptacji)</h2>
+            <ul class="item-list" id="submissionsList">
+                <li>Ładowanie zgłoszeń...</li>
+            </ul>
+            <div class="status-msg" id="modMsg"></div>
+        </section>
+
         <div class="grid-2">
             <section class="card">
                 <h2>Dodaj wykonawcę</h2>
@@ -146,7 +181,7 @@
             </section>
 
             <section class="card">
-                <h2>Dodaj utwór</h2>
+                <h2>Dodaj utwór bezpośrednio</h2>
                 <form id="songForm">
                     <div class="field">
                         <label for="songArtist">Wykonawca</label>
@@ -172,9 +207,9 @@
             </section>
         </div>
 
-        <div class="grid-2">
+        <div class="grid-2" style="margin-top: 32px;">
             <section class="card">
-                <h2>Ostatnie utwory</h2>
+                <h2>Opublikowane utwory</h2>
                 <ul class="item-list" id="adminSongsList">
                     <li>Ładowanie...</li>
                 </ul>
@@ -214,6 +249,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const guardMsg = document.getElementById("guardMsg");
 const adminContent = document.getElementById("adminContent");
 const adminEmail = document.getElementById("adminEmail");
+const modMsg = document.getElementById("modMsg");
 
 function escapeHtml(str) {
     return String(str ?? "")
@@ -263,7 +299,118 @@ async function initAdmin() {
     adminContent.style.display = "block";
     adminEmail.textContent = `Zalogowano jako: ${user.email}`;
 
-    await Promise.all([loadArtists(), loadSongs()]);
+    await Promise.all([loadSubmissions(), loadArtists(), loadSongs()]);
+}
+
+async function getOrCreateArtistId(artistName) {
+    const cleanName = artistName.trim();
+    const { data: existing, error: selErr } = await sb
+        .from("artists")
+        .select("id, name")
+        .ilike("name", cleanName)
+        .limit(1);
+
+    if (selErr) throw selErr;
+    if (Array.isArray(existing) && existing[0]?.id) {
+        return existing[0].id;
+    }
+
+    const { data: inserted, error: insErr } = await sb
+        .from("artists")
+        .insert({ name: cleanName })
+        .select("id")
+        .single();
+
+    if (insErr) throw insErr;
+    return inserted.id;
+}
+
+async function loadSubmissions() {
+    const list = document.getElementById("submissionsList");
+    const { data, error } = await sb
+        .from("song_submissions")
+        .select("id, artist_name, title, slug, lyrics, created_at")
+        .order("created_at", { ascending: false });
+
+    if (error) {
+        list.innerHTML = `<li>${escapeHtml(error.message)}</li>`;
+        return;
+    }
+
+    if (!data || data.length === 0) {
+        list.innerHTML = '<li>Brak nowych zgłoszeń do moderacji.</li>';
+        return;
+    }
+
+    list.innerHTML = data.map(item => `
+        <li>
+            <div style="flex:1; min-width:0;">
+                <strong>${escapeHtml(item.title)}</strong>
+                <span class="item-sub">Wykonawca: ${escapeHtml(item.artist_name)} · slug: ${escapeHtml(item.slug)}</span>
+                <div class="lyrics-preview">${escapeHtml(item.lyrics)}</div>
+            </div>
+            <div class="row-btns">
+                <button type="button" class="btn-ok" data-accept-id="${escapeHtml(item.id)}">Akceptuj</button>
+                <button type="button" class="btn-del" data-reject-id="${escapeHtml(item.id)}">Wyrzuć</button>
+            </div>
+        </li>
+    `).join("");
+
+    list.querySelectorAll("[data-accept-id]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            const id = btn.getAttribute("data-accept-id");
+            const sub = data.find(x => String(x.id) === String(id));
+            if (!sub) return;
+
+            btn.disabled = true;
+            setStatus(modMsg, "Akceptowanie i publikowanie utworu...");
+
+            try {
+                const artistId = await getOrCreateArtistId(sub.artist_name);
+                const { error: songErr } = await sb.from("songs").insert({
+                    artist_id: artistId,
+                    title: sub.title,
+                    slug: sub.slug,
+                    lyrics: sub.lyrics
+                });
+                if (songErr) throw songErr;
+
+                const { error: delErr } = await sb
+                    .from("song_submissions")
+                    .delete()
+                    .eq("id", sub.id);
+                if (delErr) throw delErr;
+
+                setStatus(modMsg, `Opublikowano: ${sub.title} (${sub.artist_name}).`);
+                await Promise.all([loadSubmissions(), loadArtists(), loadSongs()]);
+            } catch (err) {
+                btn.disabled = false;
+                setStatus(modMsg, "Błąd akceptacji: " + err.message, true);
+            }
+        });
+    });
+
+    list.querySelectorAll("[data-reject-id]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            const id = btn.getAttribute("data-reject-id");
+            btn.disabled = true;
+            setStatus(modMsg, "Usuwanie zgłoszenia...");
+
+            const { error: delErr } = await sb
+                .from("song_submissions")
+                .delete()
+                .eq("id", id);
+
+            if (delErr) {
+                btn.disabled = false;
+                setStatus(modMsg, "Błąd usuwania: " + delErr.message, true);
+                return;
+            }
+
+            setStatus(modMsg, "Zgłoszenie zostało wyrzucone.");
+            await loadSubmissions();
+        });
+    });
 }
 
 async function loadArtists() {
@@ -323,7 +470,7 @@ async function loadSongs() {
     }
 
     if (!data || data.length === 0) {
-        list.innerHTML = '<li>Brak utworów w bazie.</li>';
+        list.innerHTML = '<li>Brak opublikowanych utworów.</li>';
         return;
     }
 
