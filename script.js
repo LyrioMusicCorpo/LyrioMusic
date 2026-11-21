@@ -4,14 +4,19 @@
 const SUPABASE_URL = "https://oxkstekhjumgbdjzxsdr.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_IU3Bb6fXNt6mZlJGx3JHjA_Ff_Otitd";
 
-// Nazwy tabeli i kolumn w bazie (dostosuj, jeśli u Ciebie nazywają się inaczej)
+// Schemat z Table Editor:
+// songs: id (uuid), artist_id (uuid -> artists), title (text), slug (text), lyrics (text)
+// Jeśli w tabeli songs masz też kolumny np. views albo created_at, możesz je dodać poniżej.
 const DB_CONFIG = {
-    table: "songs",
+    songsTable: "songs",
+    artistsTable: "artists",
     colId: "id",
     colTitle: "title",
-    colArtist: "artist",
-    colViews: "views",
-    colCreated: "created_at"
+    colSlug: "slug",
+    colArtistId: "artist_id",
+    colArtistName: "name",      // zmień jeśli w tabeli artists nazwa wykonawcy nazywa się inaczej (np. title)
+    colViews: null,             // np. "views" — zostaw null, jeśli jeszcze nie ma tej kolumny w songs
+    colCreated: null            // np. "created_at" — zostaw null, jeśli jeszcze nie ma tej kolumny w songs
 };
 
 let supabaseClient = null;
@@ -39,7 +44,7 @@ toggle.addEventListener("click", () => {
 });
 
 // ==========================================
-// 3. RENDEROWANIE LISTY UTWORÓW
+// 3. POMOCNICZE FUNKCJE DANYCH I RENDEROWANIA
 // ==========================================
 function escapeHtml(str) {
     return String(str ?? "")
@@ -47,6 +52,17 @@ function escapeHtml(str) {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+}
+
+function getArtistName(row) {
+    const rel = row[DB_CONFIG.artistsTable];
+    if (Array.isArray(rel)) {
+        return rel[0]?.[DB_CONFIG.colArtistName] || "Nieznany wykonawca";
+    }
+    if (rel && typeof rel === "object") {
+        return rel[DB_CONFIG.colArtistName] || "Nieznany wykonawca";
+    }
+    return "Nieznany wykonawca";
 }
 
 function renderSongList(containerId, items, emptyMessage) {
@@ -59,11 +75,18 @@ function renderSongList(containerId, items, emptyMessage) {
     }
 
     container.innerHTML = items.map(song => {
-        const id = encodeURIComponent(song[DB_CONFIG.colId] ?? "");
+        const key = encodeURIComponent(song[DB_CONFIG.colSlug] || song[DB_CONFIG.colId] || "");
         const title = escapeHtml(song[DB_CONFIG.colTitle] || "Bez tytułu");
-        const artist = escapeHtml(song[DB_CONFIG.colArtist] || "Nieznany wykonawca");
-        return `<li><a href="/utwor?id=${id}"><span><span class="title">${title}</span><span class="artist">${artist}</span></span></a></li>`;
+        const artist = escapeHtml(getArtistName(song));
+        return `<li><a href="/utwor?id=${key}"><span><span class="title">${title}</span><span class="artist">${artist}</span></span></a></li>`;
     }).join("");
+}
+
+function buildSelectQuery() {
+    const baseCols = [DB_CONFIG.colId, DB_CONFIG.colTitle, DB_CONFIG.colSlug, DB_CONFIG.colArtistId];
+    if (DB_CONFIG.colViews) baseCols.push(DB_CONFIG.colViews);
+    if (DB_CONFIG.colCreated) baseCols.push(DB_CONFIG.colCreated);
+    return `${baseCols.join(", ")}, ${DB_CONFIG.artistsTable} (${DB_CONFIG.colArtistName})`;
 }
 
 // ==========================================
@@ -77,23 +100,29 @@ async function loadHomepageSongs() {
     }
 
     try {
-        // Popularne teksty (sortowane po wyświetleniach)
-        const { data: popular, error: popErr } = await supabaseClient
-            .from(DB_CONFIG.table)
-            .select(`${DB_CONFIG.colId}, ${DB_CONFIG.colTitle}, ${DB_CONFIG.colArtist}`)
-            .order(DB_CONFIG.colViews, { ascending: false })
+        let popularQuery = supabaseClient
+            .from(DB_CONFIG.songsTable)
+            .select(buildSelectQuery())
             .limit(5);
 
+        if (DB_CONFIG.colViews) {
+            popularQuery = popularQuery.order(DB_CONFIG.colViews, { ascending: false });
+        }
+
+        const { data: popular, error: popErr } = await popularQuery;
         if (popErr) throw popErr;
         renderSongList("popularSongs", popular, "Brak utworów w bazie");
 
-        // Najnowsze teksty (sortowane po dacie dodania)
-        const { data: latest, error: latErr } = await supabaseClient
-            .from(DB_CONFIG.table)
-            .select(`${DB_CONFIG.colId}, ${DB_CONFIG.colTitle}, ${DB_CONFIG.colArtist}`)
-            .order(DB_CONFIG.colCreated, { ascending: false })
+        let latestQuery = supabaseClient
+            .from(DB_CONFIG.songsTable)
+            .select(buildSelectQuery())
             .limit(5);
 
+        if (DB_CONFIG.colCreated) {
+            latestQuery = latestQuery.order(DB_CONFIG.colCreated, { ascending: false });
+        }
+
+        const { data: latest, error: latErr } = await latestQuery;
         if (latErr) throw latErr;
         renderSongList("latestSongs", latest, "Brak utworów w bazie");
 
@@ -122,9 +151,9 @@ if (searchForm && searchInput) {
         }
 
         const { data, error } = await supabaseClient
-            .from(DB_CONFIG.table)
-            .select(`${DB_CONFIG.colId}, ${DB_CONFIG.colTitle}, ${DB_CONFIG.colArtist}`)
-            .or(`${DB_CONFIG.colTitle}.ilike.%${query}%,${DB_CONFIG.colArtist}.ilike.%${query}%`)
+            .from(DB_CONFIG.songsTable)
+            .select(buildSelectQuery())
+            .ilike(DB_CONFIG.colTitle, `%${query}%`)
             .limit(10);
 
         if (!error) {
@@ -141,21 +170,22 @@ document.querySelectorAll("#alphabetNav a").forEach(link => {
         e.preventDefault();
 
         const letter = link.dataset.letter;
-        let queryBuilder = supabaseClient
-            .from(DB_CONFIG.table)
-            .select(`${DB_CONFIG.colId}, ${DB_CONFIG.colTitle}, ${DB_CONFIG.colArtist}`);
+        const { data, error } = await supabaseClient
+            .from(DB_CONFIG.songsTable)
+            .select(buildSelectQuery())
+            .limit(25);
 
-        if (letter === "0-9") {
-            queryBuilder = queryBuilder.filter(DB_CONFIG.colArtist, "imatch", "^[0-9]");
-        } else {
-            queryBuilder = queryBuilder.ilike(DB_CONFIG.colArtist, `${letter}%`);
-        }
-
-        const { data, error } = await queryBuilder.limit(10);
         if (!error) {
+            const filtered = (data || []).filter(row => {
+                const name = getArtistName(row).trim();
+                if (!name) return false;
+                if (letter === "0-9") return /^[0-9]/.test(name);
+                return name.toUpperCase().startsWith(letter.toUpperCase());
+            });
+
             const firstHeading = document.querySelector("#teksty section:first-child h2");
             if (firstHeading) firstHeading.textContent = `Wykonawcy na literę: ${letter}`;
-            renderSongList("popularSongs", data, `Brak wykonawców na ${letter}`);
+            renderSongList("popularSongs", filtered, `Brak wykonawców na ${letter}`);
             document.getElementById("teksty")?.scrollIntoView({ behavior: "smooth" });
         }
     });
