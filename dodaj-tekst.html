@@ -13,7 +13,7 @@
     } catch (e) {}
 })();
 </script>
-<link rel="stylesheet" href="style.css?v=20261121-2">
+<link rel="stylesheet" href="style.css?v=20261121-4">
 <style>
     .submit-box {
         max-width: 640px;
@@ -129,6 +129,11 @@
 
         <form id="submitSongForm">
             <div class="field">
+                <label for="submitterName">Twój nick / podpis (opcjonalnie)</label>
+                <input id="submitterName" type="text" maxlength="32" placeholder="Gość">
+                <span class="hint" id="submitterHint">Jeśli jesteś zalogowany, użyjemy nazwy z Twojego profilu.</span>
+            </div>
+            <div class="field">
                 <label for="artistName">Wykonawca</label>
                 <input id="artistName" type="text" required placeholder="np. Sobel">
             </div>
@@ -190,6 +195,25 @@ const msg = document.getElementById("submitMsg");
 const ytInput = document.getElementById("youtubeUrl");
 const ytPreviewBox = document.getElementById("ytPreviewBox");
 const ytPreviewFrame = document.getElementById("ytPreviewFrame");
+const submitterInput = document.getElementById("submitterName");
+const submitterHint = document.getElementById("submitterHint");
+
+let loggedUser = null;
+
+(async () => {
+    const { data } = await sb.auth.getSession();
+    loggedUser = data?.session?.user || null;
+    if (loggedUser) {
+        const { data: prof } = await sb
+            .from("profiles")
+            .select("username")
+            .eq("id", loggedUser.id)
+            .limit(1);
+        const nick = (Array.isArray(prof) && prof[0]?.username) || loggedUser.email?.split("@")[0] || "Użytkownik";
+        submitterInput.value = nick;
+        submitterHint.textContent = `Zalogowano jako ${nick} — tekst zostanie powiązany z Twoim profilem.`;
+    }
+})();
 
 function extractYouTubeId(rawUrl) {
     if (!rawUrl) return null;
@@ -257,6 +281,51 @@ function setMsg(text, isErr = false) {
 
 form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const submitter_name = submitterInput.value.trim() || "Gość";
     const artist_name = document.getElementById("artistName").value.trim();
     const title = document.getElementById("songTitle").value.trim();
-    const rawYt = ytInput.value.trim
+    const rawYt = ytInput.value.trim();
+    const lyrics = document.getElementById("lyricsText").value.trim();
+
+    if (!artist_name || !title || !lyrics) return;
+
+    let youtube_url = null;
+    if (rawYt) {
+        const vid = extractYouTubeId(rawYt);
+        if (!vid) {
+            setMsg("Podaj poprawny link do YouTube lub YouTube Music (albo zostaw to pole puste).", true);
+            return;
+        }
+        youtube_url = `https://www.youtube.com/watch?v=${vid}`;
+    }
+
+    const baseSlug = slugify(`${artist_name}-${title}`) || `utwor-${Date.now()}`;
+    const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+
+    btn.disabled = true;
+    setMsg("Wysyłanie zgłoszenia...");
+
+    const { error } = await sb.from("song_submissions").insert({
+        artist_name,
+        title,
+        slug,
+        lyrics,
+        youtube_url,
+        submitted_by: loggedUser ? loggedUser.id : null,
+        submitter_name
+    });
+
+    btn.disabled = false;
+    if (error) {
+        setMsg("Nie udało się wysłać tekstu: " + error.message, true);
+        return;
+    }
+
+    form.reset();
+    if (loggedUser) submitterInput.value = submitter_name;
+    updateYouTubePreview();
+    setMsg("Tekst wysłany! Czeka na akceptację administratora.");
+});
+</script>
+</body>
+</html>
