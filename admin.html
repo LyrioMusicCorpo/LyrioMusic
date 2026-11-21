@@ -384,7 +384,7 @@ async function loadSubmissions() {
     const list = document.getElementById("submissionsList");
     const { data, error } = await sb
         .from("song_submissions")
-        .select("id, artist_name, title, slug, lyrics, youtube_url, created_at")
+        .select("id, artist_name, title, slug, lyrics, youtube_url, submitted_by, submitter_name, created_at")
         .order("created_at", { ascending: false });
 
     if (error) {
