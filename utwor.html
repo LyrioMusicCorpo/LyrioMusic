@@ -66,6 +66,92 @@
         color: var(--muted);
         font-size: 15px;
     }
+
+    .tr-section { margin-top: 44px; }
+    .tr-section h2 {
+        font-family: var(--serif);
+        font-size: 26px;
+        margin-bottom: 14px;
+    }
+    .tr-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    .tr-tab {
+        padding: 7px 14px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        font-size: 14px;
+        cursor: pointer;
+    }
+    .tr-tab[aria-selected="true"] {
+        background: var(--text);
+        border-color: var(--text);
+        color: var(--bg);
+    }
+    .tr-form {
+        margin-top: 32px;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+    }
+    .tr-form h3 {
+        font-family: var(--serif);
+        font-size: 20px;
+        margin-bottom: 6px;
+    }
+    .tr-form p.sub {
+        color: var(--muted);
+        font-size: 14px;
+        margin-bottom: 18px;
+    }
+    .field { margin-bottom: 16px; }
+    .field[hidden] { display: none; }
+    .field label {
+        display: block;
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 6px;
+    }
+    .field input, .field select, .field textarea {
+        width: 100%;
+        padding: 11px 14px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+    }
+    .field select option { color: #111; background: #fff; }
+    .field textarea {
+        min-height: 200px;
+        resize: vertical;
+        line-height: 1.6;
+    }
+    .submit-btn {
+        padding: 12px 22px;
+        border: 0;
+        border-radius: 4px;
+        background: var(--text);
+        color: var(--bg);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .submit-btn:hover { background: var(--accent); }
+    .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .msg {
+        margin-top: 14px;
+        font-size: 14px;
+        color: var(--muted);
+        min-height: 20px;
+    }
+    .msg.err { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -108,6 +194,46 @@
             </div>
 
             <div class="song-lyrics" id="songLyrics"></div>
+
+            <section class="tr-section" aria-labelledby="trHeading">
+                <h2 id="trHeading">Tłumaczenia</h2>
+                <p class="song-msg" id="trEmpty">Ładowanie tłumaczeń...</p>
+                <div class="tr-tabs" id="trTabs" role="tablist" aria-label="Języki tłumaczeń"></div>
+                <div class="song-lyrics" id="trContent" style="display:none;"></div>
+
+                <form class="tr-form" id="trForm">
+                    <h3>Zaproponuj tłumaczenie</h3>
+                    <p class="sub">Tłumaczenie trafi do moderacji. Po akceptacji pojawi się na tej stronie.</p>
+                    <div class="field">
+                        <label for="trLang">Język tłumaczenia</label>
+                        <select id="trLang">
+                            <option value="pl">Polski</option>
+                            <option value="en">Angielski</option>
+                            <option value="de">Niemiecki</option>
+                            <option value="es">Hiszpański</option>
+                            <option value="fr">Francuski</option>
+                            <option value="it">Włoski</option>
+                            <option value="pt">Portugalski</option>
+                            <option value="uk">Ukraiński</option>
+                            <option value="ru">Rosyjski</option>
+                            <option value="cs">Czeski</option>
+                            <option value="ja">Japoński</option>
+                            <option value="ko">Koreański</option>
+                            <option value="__other">Inny język…</option>
+                        </select>
+                    </div>
+                    <div class="field" id="trOtherField" hidden>
+                        <label for="trOther">Kod języka (2 litery)</label>
+                        <input id="trOther" type="text" maxlength="2" pattern="[A-Za-z]{2}" placeholder="np. nl">
+                    </div>
+                    <div class="field">
+                        <label for="trText">Tłumaczenie</label>
+                        <textarea id="trText" required maxlength="20000" placeholder="Wklej lub wpisz tłumaczenie tekstu..."></textarea>
+                    </div>
+                    <button type="submit" class="submit-btn" id="trBtn">Wyślij do akceptacji</button>
+                    <div class="msg" id="trMsg" role="status" aria-live="polite"></div>
+                </form>
+            </section>
         </div>
     </article>
 </main>
@@ -248,6 +374,145 @@ async function loadSong() {
 
     statusEl.style.display = "none";
     articleEl.style.display = "block";
+
+    initTranslations(song.id);
+}
+
+function langName(code) {
+    try {
+        const name = new Intl.DisplayNames(["pl"], { type: "language" }).of(code);
+        if (name) return name.charAt(0).toUpperCase() + name.slice(1);
+    } catch (e) {}
+    return String(code).toUpperCase();
+}
+
+const TR_ERRORS = {
+    not_authenticated: "Zaloguj się, żeby zaproponować tłumaczenie.",
+    invalid_language: "Niepoprawny język. Podaj dwuliterowy kod, np. en.",
+    invalid_content: "Tłumaczenie ma mieć od 1 do 20000 znaków.",
+    song_not_found: "Nie znaleziono tego utworu.",
+    rate_limited: "Wysłano już maksymalną liczbę zgłoszeń na dziś. Spróbuj jutro.",
+    too_many_pending: "Masz za dużo zgłoszeń czekających na akceptację."
+};
+
+function trErrText(err) {
+    const text = String((err && err.message) || "");
+    return TR_ERRORS[text] || "Coś poszło nie tak. Spróbuj ponownie za chwilę.";
+}
+
+async function loadTranslations(songId) {
+    const emptyEl = document.getElementById("trEmpty");
+    const tabsEl = document.getElementById("trTabs");
+    const contentEl = document.getElementById("trContent");
+
+    const { data, error } = await sb
+        .from("translations")
+        .select("id, language, content")
+        .eq("song_id", songId)
+        .eq("status", "approved")
+        .order("created_at", { ascending: true });
+
+    if (error) {
+        console.error(error);
+        emptyEl.textContent = "Nie udało się załadować tłumaczeń.";
+        return;
+    }
+
+    const items = Array.isArray(data) ? data : [];
+    tabsEl.textContent = "";
+    if (items.length === 0) {
+        emptyEl.textContent = "Ten utwór nie ma jeszcze tłumaczeń.";
+        emptyEl.style.display = "";
+        contentEl.style.display = "none";
+        return;
+    }
+    emptyEl.style.display = "none";
+
+    const seen = {};
+    const buttons = [];
+    function select(i) {
+        buttons.forEach((b, j) => b.setAttribute("aria-selected", String(i === j)));
+        contentEl.textContent = items[i].content || "";
+        contentEl.style.display = "block";
+    }
+    items.forEach((item, i) => {
+        seen[item.language] = (seen[item.language] || 0) + 1;
+        const n = seen[item.language];
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "tr-tab";
+        b.setAttribute("role", "tab");
+        b.textContent = langName(item.language) + (n > 1 ? " (" + n + ")" : "");
+        b.addEventListener("click", () => select(i));
+        tabsEl.appendChild(b);
+        buttons.push(b);
+    });
+    select(0);
+}
+
+async function initTranslations(songId) {
+    const form = document.getElementById("trForm");
+    const langEl = document.getElementById("trLang");
+    const otherField = document.getElementById("trOtherField");
+    const otherEl = document.getElementById("trOther");
+    const textEl = document.getElementById("trText");
+    const btn = document.getElementById("trBtn");
+    const msg = document.getElementById("trMsg");
+
+    function setMsg(text, isErr) {
+        msg.textContent = text;
+        msg.className = isErr ? "msg err" : "msg";
+    }
+
+    loadTranslations(songId);
+
+    const { data } = await sb.auth.getSession();
+    const user = (data && data.session && data.session.user) || null;
+    if (!user) {
+        form.querySelectorAll("select, input, textarea, button").forEach(el => { el.disabled = true; });
+        msg.className = "msg";
+        msg.textContent = "Żeby zaproponować tłumaczenie, ";
+        const link = document.createElement("a");
+        link.href = "./logowanie.html";
+        link.textContent = "zaloguj się";
+        link.style.textDecoration = "underline";
+        msg.append(link, ".");
+        return;
+    }
+
+    langEl.addEventListener("change", () => {
+        const other = langEl.value === "__other";
+        otherField.hidden = !other;
+        otherEl.required = other;
+    });
+
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const lang = langEl.value === "__other" ? otherEl.value.trim().toLowerCase() : langEl.value;
+        const content = textEl.value.trim();
+        if (!/^[a-z]{2}$/.test(lang)) {
+            setMsg(TR_ERRORS.invalid_language, true);
+            return;
+        }
+        if (!content) return;
+
+        btn.disabled = true;
+        setMsg("Wysyłanie...", false);
+        const { error } = await sb.rpc("submit_translation", {
+            p_song_id: songId,
+            p_language: lang,
+            p_content: content
+        });
+        btn.disabled = false;
+        if (error) {
+            setMsg("Nie udało się wysłać: " + trErrText(error), true);
+            return;
+        }
+        form.reset();
+        otherField.hidden = true;
+        otherEl.required = false;
+        setMsg("Tłumaczenie wysłane! Czeka na akceptację administratora.", false);
+    });
 }
 
 loadSong();
