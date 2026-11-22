@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-    <link rel="icon" href="https://drive.google.com/file/d/1g35AczF4gNtFHe522g4NPbDzEjUxQNgK/view?usp=sharing">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Panel admina — LyrioMusic</title>
@@ -214,8 +213,8 @@
                         <input id="songSlug" type="text" required placeholder="np. sobel-impreza">
                     </div>
                     <div class="field">
-                        <label for="songYoutubeUrl">Link do YouTube / YouTube Music (opcjonalnie)</label>
-                        <input id="songYoutubeUrl" type="url" placeholder="https://music.youtube.com/watch?v=...">
+                        <label for="songMediaUrl">Link do YouTube / Spotify / SoundCloud (opcjonalnie)</label>
+                        <input id="songMediaUrl" type="url" placeholder="https://...">
                     </div>
                     <div class="field">
                         <label for="songLyrics">Tekst piosenki</label>
@@ -271,55 +270,42 @@ const adminContent = document.getElementById("adminContent");
 const adminEmail = document.getElementById("adminEmail");
 const modMsg = document.getElementById("modMsg");
 
+const ERRORS = {
+    forbidden: "Brak uprawnień (wymagane zalogowanie z MFA).",
+    duplicate_artist: "Taki wykonawca już istnieje.",
+    duplicate_song: "Taki utwór lub slug już istnieje u tego wykonawcy.",
+    artist_not_found: "Nie znaleziono wykonawcy.",
+    invalid_artist: "Nazwa wykonawcy ma od 1 do 100 znaków.",
+    invalid_title: "Tytuł ma mieć od 1 do 150 znaków.",
+    invalid_lyrics: "Tekst ma mieć od 1 do 20000 znaków.",
+    invalid_info: "Informacje mogą mieć maksymalnie 2000 znaków.",
+    invalid_slug: "Slug: małe litery, cyfry i myślniki (maks. 80 znaków).",
+    invalid_video_url: "Niepoprawny link. Obsługiwane: YouTube, Spotify (pojedynczy utwór), SoundCloud."
+};
+
+function errText(err) {
+    const msg = String((err && err.message) || "");
+    return ERRORS[msg] || msg || "Nieznany błąd.";
+}
+
 function escapeHtml(str) {
     return String(str ?? "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 }
 
-function extractYouTubeId(rawUrl) {
-    if (!rawUrl) return null;
-    const trimmed = rawUrl.trim();
-    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
-
-    try {
-        const url = new URL(trimmed);
-        const host = url.hostname.replace(/^www\./, "");
-        const allowedHosts = new Set([
-            "youtube.com",
-            "m.youtube.com",
-            "music.youtube.com",
-            "youtu.be",
-            "youtube-nocookie.com"
-        ]);
-        if (!allowedHosts.has(host)) return null;
-
-        if (host === "youtu.be") {
-            const id = url.pathname.split("/").filter(Boolean)[0];
-            return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
-        }
-
-        const vParam = url.searchParams.get("v");
-        if (vParam && /^[a-zA-Z0-9_-]{11}$/.test(vParam)) return vParam;
-
-        const parts = url.pathname.split("/").filter(Boolean);
-        const embedIdx = parts.findIndex(p => p === "embed" || p === "shorts" || p === "live");
-        if (embedIdx !== -1 && parts[embedIdx + 1] && /^[a-zA-Z0-9_-]{11}$/.test(parts[embedIdx + 1])) {
-            return parts[embedIdx + 1];
-        }
-    } catch (e) {
-        return null;
-    }
-    return null;
+function one(value) {
+    return Array.isArray(value) ? value[0] : value;
 }
 
 function slugify(text) {
     return text
         .toLowerCase()
         .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[̀-ͯ]/g, "")
         .replace(/ł/g, "l")
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "");
@@ -330,158 +316,236 @@ function setStatus(el, text, isErr = false) {
     el.className = isErr ? "status-msg err" : "status-msg";
 }
 
-async function initAdmin() {
-    const { data: sessionData, error: sessErr } = await sb.auth.getSession();
-    const user = sessionData?.session?.user;
-
-    if (sessErr || !user) {
-        window.location.replace("./logowanie.html");
-        return;
-    }
-
-    const { data: roleRows, error: roleErr } = await sb
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .limit(1);
-
-    const roleRow = Array.isArray(roleRows) ? roleRows[0] : null;
-    if (roleErr || !roleRow || roleRow.role !== "admin") {
-        guardMsg.innerHTML = 'Brak uprawnień administratora. <a href="./" style="text-decoration:underline">Wróć na stronę główną</a>.';
-        return;
-    }
-
-    guardMsg.style.display = "none";
-    adminContent.style.display = "block";
-    adminEmail.textContent = `Zalogowano jako: ${user.email}`;
-
-    await Promise.all([loadSubmissions(), loadArtists(), loadSongs()]);
+function formatDate(iso) {
+    const d = new Date(iso);
+    return isNaN(d) ? "" : d.toLocaleString("pl-PL");
 }
 
-async function getOrCreateArtistId(artistName) {
-    const cleanName = artistName.trim();
-    const { data: existing, error: selErr } = await sb
-        .from("artists")
-        .select("id, name")
-        .ilike("name", cleanName)
-        .limit(1);
+function mediaEmbedUrl(provider, id) {
+    if (provider === "youtube" && /^[A-Za-z0-9_-]{11}$/.test(id)) {
+        return "https://www.youtube.com/embed/" + id;
+    }
+    if (provider === "spotify" && /^[A-Za-z0-9]{22}$/.test(id)) {
+        return "https://open.spotify.com/embed/track/" + id;
+    }
+    if (provider === "soundcloud" && /^[A-Za-z0-9_-]{1,50}\/[A-Za-z0-9_-]{1,100}$/.test(id)) {
+        return "https://w.soundcloud.com/player/?url=" + encodeURIComponent("https://soundcloud.com/" + id);
+    }
+    return null;
+}
 
-    if (selErr) throw selErr;
-    if (Array.isArray(existing) && existing[0]?.id) {
-        return existing[0].id;
+function playerHtml(provider, id) {
+    const src = mediaEmbedUrl(provider, id);
+    if (!src) return '<span class="item-sub">Brak odtwarzacza</span>';
+    return `<div class="sub-iframe-wrap"><iframe src="${escapeHtml(src)}" title="Odtwarzacz" loading="lazy" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`;
+}
+
+function showMfaBox(factorId, setup) {
+    return new Promise(resolve => {
+        const box = document.createElement("section");
+        box.className = "card";
+        box.id = "mfaBox";
+
+        const heading = document.createElement("h2");
+        heading.textContent = setup ? "Włącz uwierzytelnianie dwuskładnikowe" : "Kod z aplikacji uwierzytelniającej";
+        box.appendChild(heading);
+
+        const hint = document.createElement("p");
+        hint.className = "item-sub";
+        hint.textContent = setup
+            ? "Zeskanuj kod QR w aplikacji uwierzytelniającej (np. Google Authenticator), a potem wpisz 6-cyfrowy kod."
+            : "Wpisz 6-cyfrowy kod z aplikacji uwierzytelniającej.";
+        box.appendChild(hint);
+
+        if (setup) {
+            const img = document.createElement("img");
+            img.src = setup.qr_code;
+            img.alt = "Kod QR do aplikacji uwierzytelniającej";
+            img.width = 180;
+            img.height = 180;
+            box.appendChild(img);
+
+            const secret = document.createElement("p");
+            secret.className = "item-sub";
+            secret.textContent = "Klucz ręczny: " + setup.secret;
+            box.appendChild(secret);
+        }
+
+        const form = document.createElement("form");
+        const field = document.createElement("div");
+        field.className = "field";
+        const label = document.createElement("label");
+        label.htmlFor = "mfaCode";
+        label.textContent = "Kod";
+        const input = document.createElement("input");
+        input.id = "mfaCode";
+        input.type = "text";
+        input.inputMode = "numeric";
+        input.autocomplete = "one-time-code";
+        input.maxLength = 6;
+        input.pattern = "[0-9]{6}";
+        input.required = true;
+        field.append(label, input);
+
+        const button = document.createElement("button");
+        button.type = "submit";
+        button.className = "btn btn-primary";
+        button.textContent = "Potwierdź";
+
+        const msg = document.createElement("div");
+        msg.className = "status-msg";
+
+        form.append(field, button);
+        box.append(form, msg);
+        guardMsg.after(box);
+        input.focus();
+
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            button.disabled = true;
+            setStatus(msg, "Sprawdzanie kodu...");
+            const { error } = await sb.auth.mfa.challengeAndVerify({ factorId, code: input.value.trim() });
+            if (error) {
+                button.disabled = false;
+                input.value = "";
+                setStatus(msg, "Niepoprawny kod, spróbuj ponownie.", true);
+                return;
+            }
+            box.remove();
+            resolve();
+        });
+    });
+}
+
+async function ensureMfa() {
+    const { data: aal, error: aalErr } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aalErr) throw aalErr;
+    if (aal.currentLevel === "aal2") return;
+
+    const { data: factors, error: listErr } = await sb.auth.mfa.listFactors();
+    if (listErr) throw listErr;
+
+    const verified = (factors.totp || [])[0];
+    if (verified) {
+        await showMfaBox(verified.id, null);
+        return;
     }
 
-    const { data: inserted, error: insErr } = await sb
-        .from("artists")
-        .insert({ name: cleanName })
-        .select("id")
-        .single();
+    for (const f of (factors.all || []).filter(x => x.status !== "verified")) {
+        await sb.auth.mfa.unenroll({ factorId: f.id });
+    }
+    const { data: enrolled, error: enrollErr } = await sb.auth.mfa.enroll({
+        factorType: "totp",
+        friendlyName: "LyrioMusic admin"
+    });
+    if (enrollErr) throw enrollErr;
+    await showMfaBox(enrolled.id, enrolled.totp);
+}
 
-    if (insErr) throw insErr;
-    return inserted.id;
+async function initAdmin() {
+    try {
+        const { data: sessionData } = await sb.auth.getSession();
+        const user = sessionData && sessionData.session && sessionData.session.user;
+        if (!user) {
+            window.location.replace("./logowanie.html");
+            return;
+        }
+
+        const { data: isAdmin, error: roleErr } = await sb.rpc("is_admin");
+        if (roleErr || isAdmin !== true) {
+            guardMsg.innerHTML = 'Brak uprawnień administratora. <a href="./" style="text-decoration:underline">Wróć na stronę główną</a>.';
+            return;
+        }
+
+        await ensureMfa();
+
+        const { data: ok } = await sb.rpc("is_admin_mfa");
+        if (ok !== true) {
+            setStatus(guardMsg, "Nie udało się potwierdzić MFA. Odśwież stronę i spróbuj ponownie.", true);
+            return;
+        }
+
+        guardMsg.style.display = "none";
+        adminContent.style.display = "block";
+        adminEmail.textContent = "Zalogowano jako: " + user.email;
+
+        await Promise.all([loadSubmissions(), loadArtists(), loadSongs()]);
+    } catch (err) {
+        setStatus(guardMsg, "Błąd: " + errText(err), true);
+    }
 }
 
 async function loadSubmissions() {
     const list = document.getElementById("submissionsList");
     const { data, error } = await sb
-        .from("song_submissions")
-        .select("id, artist_name, title, slug, lyrics, youtube_url, submitted_by, submitter_name, created_at")
+        .from("songs")
+        .select("id, title, lyrics, info, media_provider, media_id, submitted_by, created_at, artists(name, status), profiles!songs_submitted_by_fkey(username)")
+        .eq("status", "pending")
         .order("created_at", { ascending: false });
 
     if (error) {
         list.innerHTML = `<li>${escapeHtml(error.message)}</li>`;
         return;
     }
-
     if (!data || data.length === 0) {
-        list.innerHTML = '<li>Brak nowych zgłoszeń do moderacji.</li>';
+        list.innerHTML = "<li>Brak nowych zgłoszeń do moderacji.</li>";
         return;
     }
 
-    list.innerHTML = data.map(item => {
-        const vid = extractYouTubeId(item.youtube_url);
-        const embedHtml = vid
-            ? `<div class="sub-iframe-wrap"><iframe src="https://www.youtube.com/embed/${escapeHtml(vid)}" title="Odtwarzacz YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`
-            : `<span class="item-sub">Brak linku YouTube</span>`;
+    const ids = [...new Set(data.map(s => s.submitted_by).filter(Boolean))];
+    const emails = {};
+    if (ids.length) {
+        const { data: rows } = await sb.rpc("admin_user_emails", { p_user_ids: ids });
+        (rows || []).forEach(r => { emails[r.user_id] = r.email; });
+    }
 
+    list.innerHTML = data.map(item => {
+        const artist = one(item.artists);
+        const profile = one(item.profiles);
+        const isNewArtist = artist && artist.status === "pending";
+        const who = profile && profile.username ? profile.username : "nieznany";
+        const contact = emails[item.submitted_by] ? " · " + emails[item.submitted_by] : "";
         return `
             <li>
                 <div style="flex:1; min-width:0;">
                     <strong>${escapeHtml(item.title)}</strong>
-                    <span class="item-sub">Wykonawca: ${escapeHtml(item.artist_name)} · slug: ${escapeHtml(item.slug)}</span>
-                    <span class="item-sub">Udostępnił: ${escapeHtml(item.submitter_name || "Gość")}</span>
-                    ${embedHtml}
+                    <span class="item-sub">Wykonawca: ${escapeHtml(artist ? artist.name : "—")}${isNewArtist ? " (nowy)" : ""} · ${escapeHtml(formatDate(item.created_at))}</span>
+                    <span class="item-sub">Udostępnił: ${escapeHtml(who)}${escapeHtml(contact)}</span>
+                    ${item.info ? `<span class="item-sub">Informacje: ${escapeHtml(item.info)}</span>` : ""}
+                    ${playerHtml(item.media_provider, item.media_id)}
                     <div class="lyrics-preview">${escapeHtml(item.lyrics)}</div>
                 </div>
                 <div class="row-btns">
-                    <button type="button" class="btn-ok" data-accept-id="${escapeHtml(item.id)}">Akceptuj</button>
-                    <button type="button" class="btn-del" data-reject-id="${escapeHtml(item.id)}">Wyrzuć</button>
+                    <button type="button" class="btn-ok" data-act="accept" data-id="${escapeHtml(item.id)}">Akceptuj</button>
+                    <button type="button" class="btn-del" data-act="reject" data-id="${escapeHtml(item.id)}">Wyrzuć</button>
                 </div>
             </li>
         `;
     }).join("");
-
-    list.querySelectorAll("[data-accept-id]").forEach(btn => {
-        btn.addEventListener("click", async () => {
-            const id = btn.getAttribute("data-accept-id");
-            const sub = data.find(x => String(x.id) === String(id));
-            if (!sub) return;
-            btn.disabled = true;
-            setStatus(modMsg, "Akceptowanie i publikowanie utworu...");
-
-            try {
-                const artistId = await getOrCreateArtistId(sub.artist_name);
-                const vid = extractYouTubeId(sub.youtube_url);
-                const normalizedYt = vid ? `https://www.youtube.com/watch?v=${vid}` : null;
-
-                const { error: songErr } = await sb.from("songs").insert({
-                    artist_id: artistId,
-                    title: sub.title,
-                    slug: sub.slug,
-                    lyrics: sub.lyrics,
-                   youtube_url: normalizedYt,
-                submitted_by: sub.submitted_by || null,
-                submitter_name: sub.submitter_name || "Gość"
-                });
-                if (songErr) throw songErr;
-
-                const { error: delErr } = await sb
-                    .from("song_submissions")
-                    .delete()
-                    .eq("id", sub.id);
-                if (delErr) throw delErr;
-
-                setStatus(modMsg, `Opublikowano: ${sub.title} (${sub.artist_name}).`);
-                await Promise.all([loadSubmissions(), loadArtists(), loadSongs()]);
-            } catch (err) {
-                btn.disabled = false;
-                setStatus(modMsg, "Błąd akceptacji: " + err.message, true);
-            }
-        });
-    });
-
-    list.querySelectorAll("[data-reject-id]").forEach(btn => {
-        btn.addEventListener("click", async () => {
-            const id = btn.getAttribute("data-reject-id");
-            btn.disabled = true;
-            setStatus(modMsg, "Usuwanie zgłoszenia...");
-
-            const { error: delErr } = await sb
-                .from("song_submissions")
-                .delete()
-                .eq("id", id);
-
-            if (delErr) {
-                btn.disabled = false;
-                setStatus(modMsg, "Błąd usuwania: " + delErr.message, true);
-                return;
-            }
-
-            setStatus(modMsg, "Zgłoszenie zostało wyrzucone.");
-            await loadSubmissions();
-        });
-    });
 }
+
+document.getElementById("submissionsList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const id = btn.getAttribute("data-id");
+    const accept = btn.getAttribute("data-act") === "accept";
+    btn.disabled = true;
+    setStatus(modMsg, accept ? "Publikowanie utworu..." : "Usuwanie zgłoszenia...");
+
+    const query = accept
+        ? sb.from("songs").update({ status: "approved" }).eq("id", id).select("id")
+        : sb.from("songs").delete().eq("id", id).select("id");
+    const { data, error } = await query;
+
+    if (error || !data || data.length === 0) {
+        btn.disabled = false;
+        setStatus(modMsg, "Błąd: " + (error ? errText(error) : ERRORS.forbidden), true);
+        return;
+    }
+
+    setStatus(modMsg, accept ? "Opublikowano utwór." : "Zgłoszenie zostało wyrzucone.");
+    await Promise.all([loadSubmissions(), loadArtists(), loadSongs()]);
+});
 
 async function loadArtists() {
     const select = document.getElementById("songArtist");
@@ -490,6 +554,7 @@ async function loadArtists() {
     const { data, error } = await sb
         .from("artists")
         .select("id, name")
+        .eq("status", "approved")
         .order("name", { ascending: true });
 
     if (error) {
@@ -497,10 +562,9 @@ async function loadArtists() {
         list.innerHTML = `<li>${escapeHtml(error.message)}</li>`;
         return;
     }
-
     if (!data || data.length === 0) {
         select.innerHTML = '<option value="">Najpierw dodaj wykonawcę</option>';
-        list.innerHTML = '<li>Brak wykonawców w bazie.</li>';
+        list.innerHTML = "<li>Brak wykonawców w bazie.</li>";
         return;
     }
 
@@ -513,63 +577,65 @@ async function loadArtists() {
             <button type="button" class="btn-del" data-del-artist="${escapeHtml(a.id)}">Usuń</button>
         </li>
     `).join("");
-
-    list.querySelectorAll("[data-del-artist]").forEach(btn => {
-        btn.addEventListener("click", async () => {
-            const id = btn.getAttribute("data-del-artist");
-            const { error: delErr } = await sb.from("artists").delete().eq("id", id);
-            if (delErr) {
-                alert("Nie udało się usunąć wykonawcy: " + delErr.message);
-                return;
-            }
-            await Promise.all([loadArtists(), loadSongs()]);
-        });
-    });
 }
+
+document.getElementById("adminArtistsList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-del-artist]");
+    if (!btn) return;
+    if (!confirm("Usunąć wykonawcę razem ze wszystkimi jego utworami?")) return;
+    const id = btn.getAttribute("data-del-artist");
+    const { data, error } = await sb.from("artists").delete().eq("id", id).select("id");
+    if (error || !data || data.length === 0) {
+        alert("Nie udało się usunąć wykonawcy: " + (error ? errText(error) : ERRORS.forbidden));
+        return;
+    }
+    await Promise.all([loadArtists(), loadSongs()]);
+});
 
 async function loadSongs() {
     const list = document.getElementById("adminSongsList");
     const { data, error } = await sb
         .from("songs")
-        .select("id, title, slug, youtube_url, artists(name)")
+        .select("id, title, slug, media_provider, artists(name)")
+        .eq("status", "approved")
+        .order("approved_at", { ascending: false })
         .limit(20);
 
     if (error) {
         list.innerHTML = `<li>${escapeHtml(error.message)}</li>`;
         return;
     }
-
     if (!data || data.length === 0) {
-        list.innerHTML = '<li>Brak opublikowanych utworów.</li>';
+        list.innerHTML = "<li>Brak opublikowanych utworów.</li>";
         return;
     }
 
     list.innerHTML = data.map(s => {
-        const artistName = Array.isArray(s.artists) ? s.artists[0]?.name : s.artists?.name;
-        const ytTag = extractYouTubeId(s.youtube_url) ? " · YT ✓" : "";
+        const artist = one(s.artists);
+        const tag = s.media_provider ? " · " + s.media_provider + " ✓" : "";
         return `
             <li>
                 <div>
                     <strong>${escapeHtml(s.title)}</strong>
-                    <span class="item-sub">${escapeHtml(artistName || "—")} · /${escapeHtml(s.slug || "")}${ytTag}</span>
+                    <span class="item-sub">${escapeHtml(artist ? artist.name : "—")} · /${escapeHtml(s.slug || "")}${escapeHtml(tag)}</span>
                 </div>
                 <button type="button" class="btn-del" data-del-song="${escapeHtml(s.id)}">Usuń</button>
             </li>
         `;
     }).join("");
-
-    list.querySelectorAll("[data-del-song]").forEach(btn => {
-        btn.addEventListener("click", async () => {
-            const id = btn.getAttribute("data-del-song");
-            const { error: delErr } = await sb.from("songs").delete().eq("id", id);
-            if (delErr) {
-                alert("Nie udało się usunąć utworu: " + delErr.message);
-                return;
-            }
-            await loadSongs();
-        });
-    });
 }
+
+document.getElementById("adminSongsList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-del-song]");
+    if (!btn) return;
+    const id = btn.getAttribute("data-del-song");
+    const { data, error } = await sb.from("songs").delete().eq("id", id).select("id");
+    if (error || !data || data.length === 0) {
+        alert("Nie udało się usunąć utworu: " + (error ? errText(error) : ERRORS.forbidden));
+        return;
+    }
+    await Promise.all([loadSongs(), loadArtists()]);
+});
 
 document.getElementById("artistForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -579,9 +645,9 @@ document.getElementById("artistForm").addEventListener("submit", async (e) => {
     if (!name) return;
 
     setStatus(msg, "Zapisywanie...");
-    const { error } = await sb.from("artists").insert({ name });
+    const { error } = await sb.rpc("admin_add_artist", { p_name: name });
     if (error) {
-        setStatus(msg, "Błąd: " + error.message, true);
+        setStatus(msg, "Błąd: " + errText(error), true);
         return;
     }
     input.value = "";
@@ -607,35 +673,26 @@ document.getElementById("songForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const msg = document.getElementById("songMsg");
 
-    const artist_id = document.getElementById("songArtist").value;
+    const artistId = document.getElementById("songArtist").value;
     const title = titleInput.value.trim();
     const slug = slugInput.value.trim() || slugify(title);
-    const rawYt = document.getElementById("songYoutubeUrl").value.trim();
+    const videoUrl = document.getElementById("songMediaUrl").value.trim();
     const lyrics = document.getElementById("songLyrics").value;
 
-    if (!artist_id || !title || !lyrics) return;
-
-    let youtube_url = null;
-    if (rawYt) {
-        const vid = extractYouTubeId(rawYt);
-        if (!vid) {
-            setStatus(msg, "Niepoprawny link YouTube / YouTube Music.", true);
-            return;
-        }
-        youtube_url = `https://www.youtube.com/watch?v=${vid}`;
-    }
+    if (!artistId || !title || !lyrics) return;
 
     setStatus(msg, "Dodawanie utworu...");
-    const { error } = await sb.from("songs").insert({
-        artist_id,
-        title,
-        slug,
-        lyrics,
-        youtube_url
+    const { error } = await sb.rpc("admin_add_song", {
+        p_artist_id: artistId,
+        p_title: title,
+        p_lyrics: lyrics,
+        p_info: null,
+        p_video_url: videoUrl || null,
+        p_slug: slug || null
     });
 
     if (error) {
-        setStatus(msg, "Błąd: " + error.message, true);
+        setStatus(msg, "Błąd: " + errText(error), true);
         return;
     }
 
@@ -652,7 +709,6 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
 
 initAdmin();
 </script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="auth-nav.js?v=1"></script>
 </body>
 </html>
