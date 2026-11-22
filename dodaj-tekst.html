@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-    <link rel="icon" href="https://drive.google.com/file/d/1g35AczF4gNtFHe522g4NPbDzEjUxQNgK/view?usp=sharing">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dodaj tekst — LyrioMusic</title>
@@ -60,6 +59,7 @@
         resize: vertical;
         line-height: 1.6;
     }
+    #infoText { min-height: 90px; }
     .yt-preview {
         display: none;
         margin-bottom: 18px;
@@ -130,36 +130,41 @@
 
         <form id="submitSongForm">
             <div class="field">
-                <label for="submitterName">Twój nick / podpis (opcjonalnie)</label>
-                <input id="submitterName" type="text" maxlength="32" placeholder="Gość">
-                <span class="hint" id="submitterHint">Jeśli jesteś zalogowany, użyjemy nazwy z Twojego profilu.</span>
+                <label for="submitterName">Twój nick</label>
+                <input id="submitterName" type="text" maxlength="20" autocomplete="nickname" placeholder="np. jan_kowalski">
+                <span class="hint" id="submitterHint">Tylko zalogowani mogą dodawać teksty. Nick: 3–20 znaków, litery bez polskich znaków, cyfry i _.</span>
             </div>
             <div class="field">
                 <label for="artistName">Wykonawca</label>
-                <input id="artistName" type="text" required placeholder="np. Sobel">
+                <input id="artistName" type="text" required maxlength="100" placeholder="np. Sobel">
             </div>
             <div class="field">
                 <label for="songTitle">Tytuł utworu</label>
-                <input id="songTitle" type="text" required placeholder="np. Impreza">
+                <input id="songTitle" type="text" required maxlength="150" placeholder="np. Impreza">
             </div>
             <div class="field">
-                <label for="youtubeUrl">Link do YouTube / YouTube Music (opcjonalnie)</label>
-                <input id="youtubeUrl" type="url" placeholder="https://music.youtube.com/watch?v=... lub https://youtu.be/...">
-                <span class="hint">Obsługuje zwykłe linki YouTube, krótkie youtu.be oraz YouTube Music.</span>
+                <label for="mediaUrl">Link do YouTube / Spotify / SoundCloud (opcjonalnie)</label>
+                <input id="mediaUrl" type="url" placeholder="https://...">
+                <span class="hint">Obsługiwane: YouTube i YouTube Music, Spotify (pojedynczy utwór) oraz SoundCloud.</span>
             </div>
 
             <div class="yt-preview" id="ytPreviewBox">
                 <iframe
                     id="ytPreviewFrame"
-                    title="Podgląd odtwarzacza YouTube"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    title="Podgląd odtwarzacza"
+                    sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox"
+                    allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                     referrerpolicy="strict-origin-when-cross-origin"
                     allowfullscreen></iframe>
             </div>
 
             <div class="field">
+                <label for="infoText">Informacje (opcjonalnie)</label>
+                <textarea id="infoText" maxlength="2000" placeholder="np. o czym jest piosenka"></textarea>
+            </div>
+            <div class="field">
                 <label for="lyricsText">Tekst piosenki</label>
-                <textarea id="lyricsText" required placeholder="Wklej lub wpisz tekst utworu..."></textarea>
+                <textarea id="lyricsText" required maxlength="20000" placeholder="Wklej lub wpisz tekst utworu..."></textarea>
             </div>
             <button type="submit" class="submit-btn" id="submitBtn">Wyślij do akceptacji</button>
         </form>
@@ -193,138 +198,160 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const form = document.getElementById("submitSongForm");
 const btn = document.getElementById("submitBtn");
 const msg = document.getElementById("submitMsg");
-const ytInput = document.getElementById("youtubeUrl");
-const ytPreviewBox = document.getElementById("ytPreviewBox");
-const ytPreviewFrame = document.getElementById("ytPreviewFrame");
+const mediaInput = document.getElementById("mediaUrl");
+const previewBox = document.getElementById("ytPreviewBox");
+const previewFrame = document.getElementById("ytPreviewFrame");
 const submitterInput = document.getElementById("submitterName");
 const submitterHint = document.getElementById("submitterHint");
 
-let loggedUser = null;
+const ERRORS = {
+    not_authenticated: "Zaloguj się, żeby dodać tekst.",
+    rate_limited: "Wysłano już maksymalną liczbę zgłoszeń na dziś. Spróbuj jutro.",
+    too_many_pending: "Masz za dużo zgłoszeń czekających na akceptację.",
+    duplicate_song: "Taki utwór tego wykonawcy już istnieje lub czeka na akceptację.",
+    invalid_artist: "Nazwa wykonawcy ma mieć od 1 do 100 znaków.",
+    invalid_title: "Tytuł ma mieć od 1 do 150 znaków.",
+    invalid_lyrics: "Tekst ma mieć od 1 do 20000 znaków.",
+    invalid_info: "Informacje mogą mieć maksymalnie 2000 znaków.",
+    invalid_video_url: "Niepoprawny link. Obsługiwane: YouTube, Spotify (pojedynczy utwór), SoundCloud."
+};
 
-(async () => {
-    const { data } = await sb.auth.getSession();
-    loggedUser = data?.session?.user || null;
-    if (loggedUser) {
-        const { data: prof } = await sb
-            .from("profiles")
-            .select("username")
-            .eq("id", loggedUser.id)
-            .limit(1);
-        const nick = (Array.isArray(prof) && prof[0]?.username) || loggedUser.email?.split("@")[0] || "Użytkownik";
-        submitterInput.value = nick;
-        submitterHint.textContent = `Zalogowano jako ${nick} — tekst zostanie powiązany z Twoim profilem.`;
-    }
-})();
+function errText(err) {
+    const text = String((err && err.message) || "");
+    return ERRORS[text] || text || "Nieznany błąd.";
+}
 
-function extractYouTubeId(rawUrl) {
-    if (!rawUrl) return null;
-    const trimmed = rawUrl.trim();
-    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+const YOUTUBE_URL = /^https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})(?:[&?#\/].*)?$/i;
+const SPOTIFY_URL = /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]{2,8}\/)?track\/([A-Za-z0-9]{22})(?:[\/?#].*)?$/i;
+const SOUNDCLOUD_URL = /^https?:\/\/(?:www\.|m\.)?soundcloud\.com\/([A-Za-z0-9_-]{1,50})\/([A-Za-z0-9_-]{1,100})\/?(?:[?#].*)?$/i;
+const SOUNDCLOUD_RESERVED = new Set(["sets", "likes", "reposts", "tracks", "albums", "followers", "following", "comments", "popular-tracks", "spotlight"]);
 
-    try {
-        const url = new URL(trimmed);
-        const host = url.hostname.replace(/^www\./, "");
-        const allowedHosts = new Set([
-            "youtube.com",
-            "m.youtube.com",
-            "music.youtube.com",
-            "youtu.be",
-            "youtube-nocookie.com"
-        ]);
-        if (!allowedHosts.has(host)) return null;
-
-        if (host === "youtu.be") {
-            const id = url.pathname.split("/").filter(Boolean)[0];
-            return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
-        }
-
-        const vParam = url.searchParams.get("v");
-        if (vParam && /^[a-zA-Z0-9_-]{11}$/.test(vParam)) return vParam;
-
-        const parts = url.pathname.split("/").filter(Boolean);
-        const embedIdx = parts.findIndex(p => p === "embed" || p === "shorts" || p === "live");
-        if (embedIdx !== -1 && parts[embedIdx + 1] && /^[a-zA-Z0-9_-]{11}$/.test(parts[embedIdx + 1])) {
-            return parts[embedIdx + 1];
-        }
-    } catch (e) {
-        return null;
+function parseMedia(raw) {
+    const url = (raw || "").trim();
+    let m = url.match(YOUTUBE_URL);
+    if (m) return { provider: "youtube", id: m[1] };
+    m = url.match(SPOTIFY_URL);
+    if (m) return { provider: "spotify", id: m[1] };
+    m = url.match(SOUNDCLOUD_URL);
+    if (m && !SOUNDCLOUD_RESERVED.has(m[2].toLowerCase())) {
+        return { provider: "soundcloud", id: m[1] + "/" + m[2] };
     }
     return null;
 }
 
-function updateYouTubePreview() {
-    const vid = extractYouTubeId(ytInput.value);
-    if (vid) {
-        ytPreviewFrame.src = `https://www.youtube.com/embed/${encodeURIComponent(vid)}`;
-        ytPreviewBox.style.display = "block";
+function mediaEmbedUrl(media) {
+    if (media.provider === "youtube") return "https://www.youtube.com/embed/" + media.id;
+    if (media.provider === "spotify") return "https://open.spotify.com/embed/track/" + media.id;
+    return "https://w.soundcloud.com/player/?url=" + encodeURIComponent("https://soundcloud.com/" + media.id);
+}
+
+function updatePreview() {
+    const media = parseMedia(mediaInput.value);
+    if (media) {
+        previewFrame.src = mediaEmbedUrl(media);
+        previewBox.style.display = "block";
     } else {
-        ytPreviewFrame.removeAttribute("src");
-        ytPreviewBox.style.display = "none";
+        previewFrame.removeAttribute("src");
+        previewBox.style.display = "none";
     }
 }
 
-ytInput.addEventListener("input", updateYouTubePreview);
-
-function slugify(text) {
-    return text
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/ł/g, "l")
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
-}
+mediaInput.addEventListener("input", updatePreview);
 
 function setMsg(text, isErr = false) {
     msg.textContent = text;
     msg.className = isErr ? "msg err" : "msg";
 }
 
+function lockForm() {
+    form.querySelectorAll("input, textarea, button").forEach(el => { el.disabled = true; });
+    submitterHint.textContent = "Tylko zalogowani mogą dodawać teksty.";
+    msg.className = "msg";
+    msg.textContent = "Żeby dodać tekst, ";
+    const link = document.createElement("a");
+    link.href = "./logowanie.html";
+    link.textContent = "zaloguj się";
+    link.style.textDecoration = "underline";
+    msg.append(link, ".");
+}
+
+let loggedUser = null;
+let currentNick = "";
+
+(async () => {
+    const { data } = await sb.auth.getSession();
+    loggedUser = (data && data.session && data.session.user) || null;
+    if (!loggedUser) {
+        lockForm();
+        return;
+    }
+    const { data: prof } = await sb
+        .from("profiles")
+        .select("username")
+        .eq("id", loggedUser.id)
+        .limit(1);
+    currentNick = (Array.isArray(prof) && prof[0] && prof[0].username) || "";
+    submitterInput.value = currentNick;
+    submitterHint.textContent = "Zalogowano jako " + (currentNick || "użytkownik") + ". Nick: 3–20 znaków, litery bez polskich znaków, cyfry i _.";
+})();
+
 form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const submitter_name = submitterInput.value.trim() || "Gość";
-    const artist_name = document.getElementById("artistName").value.trim();
+    if (!loggedUser) return;
+
+    const nick = submitterInput.value.trim();
+    const artist = document.getElementById("artistName").value.trim();
     const title = document.getElementById("songTitle").value.trim();
-    const rawYt = ytInput.value.trim();
+    const rawMedia = mediaInput.value.trim();
+    const info = document.getElementById("infoText").value.trim();
     const lyrics = document.getElementById("lyricsText").value.trim();
 
-    if (!artist_name || !title || !lyrics) return;
+    if (!artist || !title || !lyrics) return;
 
-    let youtube_url = null;
-    if (rawYt) {
-        const vid = extractYouTubeId(rawYt);
-        if (!vid) {
-            setMsg("Podaj poprawny link do YouTube lub YouTube Music (albo zostaw to pole puste).", true);
-            return;
-        }
-        youtube_url = `https://www.youtube.com/watch?v=${vid}`;
+    const nickChanged = nick !== "" && nick !== currentNick;
+    if (nickChanged && !/^[A-Za-z0-9_]{3,20}$/.test(nick)) {
+        setMsg("Nick: 3–20 znaków, tylko litery bez polskich znaków, cyfry i _.", true);
+        return;
     }
-
-    const baseSlug = slugify(`${artist_name}-${title}`) || `utwor-${Date.now()}`;
-    const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+    if (rawMedia && !parseMedia(rawMedia)) {
+        setMsg(ERRORS.invalid_video_url, true);
+        return;
+    }
 
     btn.disabled = true;
     setMsg("Wysyłanie zgłoszenia...");
 
-    const { error } = await sb.from("song_submissions").insert({
-        artist_name,
-        title,
-        slug,
-        lyrics,
-        youtube_url,
-        submitted_by: loggedUser ? loggedUser.id : null,
-        submitter_name
+    if (nickChanged) {
+        const { data: updated, error: nickErr } = await sb
+            .from("profiles")
+            .update({ username: nick })
+            .eq("id", loggedUser.id)
+            .select("username");
+        if (nickErr || !updated || updated.length === 0) {
+            btn.disabled = false;
+            setMsg(nickErr && nickErr.code === "23505" ? "Ten nick jest już zajęty." : "Nie udało się zmienić nicku.", true);
+            return;
+        }
+        currentNick = nick;
+    }
+
+    const { error } = await sb.rpc("submit_song", {
+        p_artist: artist,
+        p_title: title,
+        p_lyrics: lyrics,
+        p_info: info || null,
+        p_video_url: rawMedia || null
     });
 
     btn.disabled = false;
     if (error) {
-        setMsg("Nie udało się wysłać tekstu: " + error.message, true);
+        setMsg("Nie udało się wysłać tekstu: " + errText(error), true);
         return;
     }
 
     form.reset();
-    if (loggedUser) submitterInput.value = submitter_name;
-    updateYouTubePreview();
+    submitterInput.value = currentNick;
+    updatePreview();
     setMsg("Tekst wysłany! Czeka na akceptację administratora.");
 });
 </script>
