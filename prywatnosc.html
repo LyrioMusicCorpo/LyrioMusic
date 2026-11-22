@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polityka prywatności — LyrioMusic</title>
+<script>
+(function () {
+    try {
+        var t = localStorage.getItem("lyrio-theme");
+        if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+    } catch (e) {}
+})();
+</script>
+<link rel="stylesheet" href="style.css?v=20261121-5">
+<style>
+    .legal { max-width: 760px; margin: 40px auto 56px; }
+    .legal h1 { font-family: var(--serif); font-size: 34px; margin-bottom: 6px; }
+    .legal .upd { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+    .legal h2 { font-family: var(--serif); font-size: 22px; margin: 34px 0 10px; }
+    .legal p, .legal li { line-height: 1.7; font-size: 15px; margin-bottom: 10px; }
+    .legal ol, .legal ul { padding-left: 24px; margin-bottom: 10px; }
+    .legal a { text-decoration: underline; }
+    .site-foot { border-top: 1px solid var(--line); padding: 22px 0 36px; font-size: 14px; color: var(--muted); }
+    .site-foot .wrap { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+    .site-foot a { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+    <div class="wrap">
+        <a href="./" class="logo">Lyrio<span>Music</span></a>
+        <nav aria-label="Główna nawigacja">
+            <a href="./#teksty">Teksty</a>
+            <a href="./#wykonawcy">Wykonawcy</a>
+            <a href="./tlumaczenia.html">Tłumaczenia</a>
+            <a href="./dodaj-tekst.html">Dodaj tekst</a>
+        </nav>
+        <a href="./logowanie.html" class="login">Zaloguj się</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Ciemny motyw" aria-pressed="false">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+                <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>
+            </svg>
+        </button>
+    </div>
+</header>
+
+<main class="wrap">
+<article class="legal">
+<h1>Polityka prywatności</h1>
+<p class="upd">Obowiązuje od: <span data-updated></span></p>
+
+<h2>1. Administrator danych</h2>
+<p>Administratorem danych osobowych w serwisie LyrioMusic (<span data-siteurl></span>) jest <span data-op></span>. Kontakt w sprawach danych osobowych: <a data-email></a>.</p>
+
+<h2>2. Jakie dane przetwarzamy i po co</h2>
+<ul>
+<li><strong>Konto:</strong> adres e-mail, hasło (przechowywane w formie zaszyfrowanej przez dostawcę uwierzytelniania) i nick. Cel: założenie i obsługa konta. Podstawa: umowa o świadczenie usługi drogą elektroniczną (art. 6 ust. 1 lit. b RODO).</li>
+<li><strong>Treści dodawane przez użytkownika</strong> (teksty, tłumaczenia, informacje, linki do odtwarzaczy) wraz z informacją, kto je zgłosił. Cel: publikacja i moderacja. Podstawa: umowa oraz prawnie uzasadniony interes Administratora w prowadzeniu i zabezpieczeniu serwisu (art. 6 ust. 1 lit. b i f RODO).</li>
+<li><strong>Zgłoszenia naruszeń:</strong> imię i nazwisko lub nazwa, e-mail, treść zgłoszenia. Cel: rozpatrzenie zgłoszenia, odpowiedź zgłaszającemu i obrona przed roszczeniami. Podstawa: obowiązek prawny i prawnie uzasadniony interes (art. 6 ust. 1 lit. c i f RODO).</li>
+<li><strong>Licznik wyświetleń:</strong> przy otwarciu utworu zapisywany jest zaszyfrowany skrót adresu IP z tajną solą, przechowywany około doby. Pozwala to zliczać jedno wyświetlenie na osobę, utwór i dzień. Samego adresu IP nie zapisujemy w bazie. Podstawa: prawnie uzasadniony interes (art. 6 ust. 1 lit. f RODO).</li>
+<li><strong>Dane techniczne:</strong> dostawcy hostingu i sieci dostarczania treści mogą zapisywać adres IP i dane przeglądarki w swoich logach (zob. punkt 4).</li>
+</ul>
+
+<h2>3. Pamięć lokalna i pliki cookies</h2>
+<p>Serwis nie używa własnych plików cookies reklamowych ani analitycznych. W pamięci lokalnej przeglądarki (localStorage) zapisujemy wybór motywu jasny/ciemny oraz dane sesji logowania. Są one niezbędne do działania tych funkcji.</p>
+<p>Odtwarzacze YouTube, Spotify i SoundCloud, które ładują się na stronie utworu, są dostarczane przez zewnętrzne firmy i mogą ustawiać własne pliki cookies oraz zbierać dane zgodnie ze swoimi politykami prywatności.</p>
+
+<h2>4. Odbiorcy danych</h2>
+<ul>
+<li>Supabase: baza danych i uwierzytelnianie.</li>
+<li>GitHub (GitHub Pages): hosting plików strony.</li>
+<li>jsDelivr: sieć dostarczania skryptów (otrzymuje adres IP przeglądarki przy ich pobieraniu).</li>
+<li>YouTube, Spotify, SoundCloud: odtwarzacze osadzone na stronie utworu.</li>
+</ul>
+<p>Dane mogą być przetwarzane przez dostawców spoza Europejskiego Obszaru Gospodarczego. W takim przypadku stosuje się zabezpieczenia przewidziane w RODO.</p>
+
+<h2>5. Jak długo przechowujemy dane</h2>
+<p>Dane konta przechowujemy do czasu jego usunięcia. Zgłoszenia naruszeń przechowujemy przez czas potrzebny do ich rozpatrzenia i obrony przed ewentualnymi roszczeniami. Skrót adresu IP do liczenia wyświetleń przechowujemy około doby.</p>
+
+<h2>6. Twoje prawa</h2>
+<p>Masz prawo dostępu do danych, ich sprostowania, usunięcia, ograniczenia przetwarzania, przenoszenia oraz sprzeciwu wobec przetwarzania opartego na prawnie uzasadnionym interesie. Napisz na <a data-email></a>. Masz też prawo wnieść skargę do Prezesa Urzędu Ochrony Danych Osobowych.</p>
+<p>Podanie danych jest dobrowolne, ale niezbędne do założenia konta i dodawania treści. Nie podejmujemy decyzji w sposób zautomatyzowany ani nie profilujemy użytkowników.</p>
+
+<h2>7. Zmiany</h2>
+<p>Politykę możemy zmieniać. Aktualna wersja jest zawsze dostępna na tej stronie.</p>
+</article>
+</main>
+
+<footer class="site-foot">
+    <div class="wrap">
+        <a href="./regulamin.html">Regulamin</a>
+        <a href="./prywatnosc.html">Polityka prywatności</a>
+        <a href="./naruszenia.html">Zgłoś naruszenie</a>
+    </div>
+</footer>
+
+<script src="site-config.js?v=1"></script>
+<script>
+(function () {
+    var root = document.documentElement;
+    var toggle = document.getElementById("themeToggle");
+    function applyTheme(t) {
+        root.dataset.theme = t;
+        if (toggle) toggle.setAttribute("aria-pressed", t === "dark");
+    }
+    applyTheme(root.dataset.theme || "light");
+    if (toggle) {
+        toggle.addEventListener("click", function () {
+            var next = root.dataset.theme === "dark" ? "light" : "dark";
+            applyTheme(next);
+            try { localStorage.setItem("lyrio-theme", next); } catch (e) {}
+        });
+    }
+})();
+
+</script>
+</body>
+</html>
