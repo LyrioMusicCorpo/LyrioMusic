@@ -13,7 +13,7 @@
     } catch (e) {}
 })();
 </script>
-<link rel="stylesheet" href="style.css?v=20261121-2">
+<link rel="stylesheet" href="style.css?v=20261121-5">
 <style>
     .admin-wrap { padding: 36px 0 56px; }
     .admin-top {
@@ -182,6 +182,14 @@
             <div class="status-msg" id="modMsg"></div>
         </section>
 
+        <section class="card">
+            <h2>Tłumaczenia (do akceptacji)</h2>
+            <ul class="item-list" id="trList">
+                <li>Ładowanie tłumaczeń...</li>
+            </ul>
+            <div class="status-msg" id="trMsg"></div>
+        </section>
+
         <div class="grid-2">
             <section class="card">
                 <h2>Dodaj wykonawcę</h2>
@@ -241,6 +249,13 @@
                 </ul>
             </section>
         </div>
+
+        <section class="card">
+            <h2>Opublikowane tłumaczenia</h2>
+            <ul class="item-list" id="trApprovedList">
+                <li>Ładowanie...</li>
+            </ul>
+        </section>
     </div>
 </main>
 
@@ -269,6 +284,7 @@ const guardMsg = document.getElementById("guardMsg");
 const adminContent = document.getElementById("adminContent");
 const adminEmail = document.getElementById("adminEmail");
 const modMsg = document.getElementById("modMsg");
+const trMsg = document.getElementById("trMsg");
 
 const ERRORS = {
     forbidden: "Brak uprawnień (wymagane zalogowanie z MFA).",
@@ -305,7 +321,7 @@ function slugify(text) {
     return text
         .toLowerCase()
         .normalize("NFD")
-        .replace(/[̀-ͯ]/g, "")
+        .replace(/[\u0300-\u036f]/g, "")
         .replace(/ł/g, "l")
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "");
@@ -319,6 +335,14 @@ function setStatus(el, text, isErr = false) {
 function formatDate(iso) {
     const d = new Date(iso);
     return isNaN(d) ? "" : d.toLocaleString("pl-PL");
+}
+
+function langName(code) {
+    try {
+        const name = new Intl.DisplayNames(["pl"], { type: "language" }).of(code);
+        if (name) return name.charAt(0).toUpperCase() + name.slice(1);
+    } catch (e) {}
+    return String(code || "").toUpperCase();
 }
 
 function mediaEmbedUrl(provider, id) {
@@ -469,7 +493,10 @@ async function initAdmin() {
         adminContent.style.display = "block";
         adminEmail.textContent = "Zalogowano jako: " + user.email;
 
-        await Promise.all([loadSubmissions(), loadArtists(), loadSongs()]);
+        await Promise.all([
+            loadSubmissions(), loadArtists(), loadSongs(),
+            loadTranslations(), loadApprovedTranslations()
+        ]);
     } catch (err) {
         setStatus(guardMsg, "Błąd: " + errText(err), true);
     }
@@ -547,6 +574,124 @@ document.getElementById("submissionsList").addEventListener("click", async (e) =
     await Promise.all([loadSubmissions(), loadArtists(), loadSongs()]);
 });
 
+async function loadTranslations() {
+    const list = document.getElementById("trList");
+    const { data, error } = await sb
+        .from("translations")
+        .select("id, language, content, submitted_by, created_at, songs(title, artists(name))")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+
+    if (error) {
+        list.innerHTML = `<li>${escapeHtml(error.message)}</li>`;
+        return;
+    }
+    if (!data || data.length === 0) {
+        list.innerHTML = "<li>Brak tłumaczeń do moderacji.</li>";
+        return;
+    }
+
+    const ids = [...new Set(data.map(t => t.submitted_by).filter(Boolean))];
+    const emails = {};
+    const names = {};
+    if (ids.length) {
+        const { data: rows } = await sb.rpc("admin_user_emails", { p_user_ids: ids });
+        (rows || []).forEach(r => { emails[r.user_id] = r.email; });
+        const { data: profs } = await sb.from("profiles").select("id, username").in("id", ids);
+        (profs || []).forEach(p => { names[p.id] = p.username; });
+    }
+
+    list.innerHTML = data.map(item => {
+        const song = one(item.songs);
+        const artist = song ? one(song.artists) : null;
+        const who = names[item.submitted_by] || "nieznany";
+        const contact = emails[item.submitted_by] ? " · " + emails[item.submitted_by] : "";
+        return `
+            <li>
+                <div style="flex:1; min-width:0;">
+                    <strong>${escapeHtml(song ? song.title : "—")}</strong>
+                    <span class="item-sub">Wykonawca: ${escapeHtml(artist ? artist.name : "—")} · Język: ${escapeHtml(langName(item.language))} · ${escapeHtml(formatDate(item.created_at))}</span>
+                    <span class="item-sub">Udostępnił: ${escapeHtml(who)}${escapeHtml(contact)}</span>
+                    <div class="lyrics-preview">${escapeHtml(item.content)}</div>
+                </div>
+                <div class="row-btns">
+                    <button type="button" class="btn-ok" data-tr-act="accept" data-tr-id="${escapeHtml(item.id)}">Akceptuj</button>
+                    <button type="button" class="btn-del" data-tr-act="reject" data-tr-id="${escapeHtml(item.id)}">Wyrzuć</button>
+                </div>
+            </li>
+        `;
+    }).join("");
+}
+
+document.getElementById("trList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-tr-act]");
+    if (!btn) return;
+    const id = btn.getAttribute("data-tr-id");
+    const accept = btn.getAttribute("data-tr-act") === "accept";
+    btn.disabled = true;
+    setStatus(trMsg, accept ? "Publikowanie tłumaczenia..." : "Usuwanie tłumaczenia...");
+
+    const query = accept
+        ? sb.from("translations").update({ status: "approved" }).eq("id", id).select("id")
+        : sb.from("translations").delete().eq("id", id).select("id");
+    const { data, error } = await query;
+
+    if (error || !data || data.length === 0) {
+        btn.disabled = false;
+        setStatus(trMsg, "Błąd: " + (error ? errText(error) : ERRORS.forbidden), true);
+        return;
+    }
+
+    setStatus(trMsg, accept ? "Opublikowano tłumaczenie." : "Tłumaczenie zostało wyrzucone.");
+    await Promise.all([loadTranslations(), loadApprovedTranslations()]);
+});
+
+async function loadApprovedTranslations() {
+    const list = document.getElementById("trApprovedList");
+    const { data, error } = await sb
+        .from("translations")
+        .select("id, language, created_at, songs(title, artists(name))")
+        .eq("status", "approved")
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+    if (error) {
+        list.innerHTML = `<li>${escapeHtml(error.message)}</li>`;
+        return;
+    }
+    if (!data || data.length === 0) {
+        list.innerHTML = "<li>Brak opublikowanych tłumaczeń.</li>";
+        return;
+    }
+
+    list.innerHTML = data.map(item => {
+        const song = one(item.songs);
+        const artist = song ? one(song.artists) : null;
+        return `
+            <li>
+                <div>
+                    <strong>${escapeHtml(song ? song.title : "—")}</strong>
+                    <span class="item-sub">${escapeHtml(artist ? artist.name : "—")} · ${escapeHtml(langName(item.language))}</span>
+                </div>
+                <button type="button" class="btn-del" data-tr-del="${escapeHtml(item.id)}">Usuń</button>
+            </li>
+        `;
+    }).join("");
+}
+
+document.getElementById("trApprovedList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-tr-del]");
+    if (!btn) return;
+    if (!confirm("Usunąć to tłumaczenie?")) return;
+    const id = btn.getAttribute("data-tr-del");
+    const { data, error } = await sb.from("translations").delete().eq("id", id).select("id");
+    if (error || !data || data.length === 0) {
+        alert("Nie udało się usunąć tłumaczenia: " + (error ? errText(error) : ERRORS.forbidden));
+        return;
+    }
+    await loadApprovedTranslations();
+});
+
 async function loadArtists() {
     const select = document.getElementById("songArtist");
     const list = document.getElementById("adminArtistsList");
@@ -589,7 +734,7 @@ document.getElementById("adminArtistsList").addEventListener("click", async (e) 
         alert("Nie udało się usunąć wykonawcy: " + (error ? errText(error) : ERRORS.forbidden));
         return;
     }
-    await Promise.all([loadArtists(), loadSongs()]);
+    await Promise.all([loadArtists(), loadSongs(), loadApprovedTranslations()]);
 });
 
 async function loadSongs() {
@@ -634,7 +779,7 @@ document.getElementById("adminSongsList").addEventListener("click", async (e) =>
         alert("Nie udało się usunąć utworu: " + (error ? errText(error) : ERRORS.forbidden));
         return;
     }
-    await Promise.all([loadSongs(), loadArtists()]);
+    await Promise.all([loadSongs(), loadArtists(), loadApprovedTranslations()]);
 });
 
 document.getElementById("artistForm").addEventListener("submit", async (e) => {
