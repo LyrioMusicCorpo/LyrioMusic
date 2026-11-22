@@ -31,7 +31,6 @@ document.addEventListener("DOMContentLoaded", function () {
         var box = document.createElement("div");
         box.setAttribute("role", "alert");
         box.style.cssText = "margin:16px 0;padding:12px 16px;border:1px solid #b00020;border-radius:6px;font-size:14px;";
-        box.textContent = "Uwaga dla administratora: uzupełnij KorneliuszDudek i KontaktLyrioMusic@proton.me w pliku site-config.js. Dopóki tego nie zrobisz, ta strona nie jest gotowa do publikacji.";
         var main = document.querySelector("main");
         if (main) main.insertBefore(box, main.firstChild);
     }
