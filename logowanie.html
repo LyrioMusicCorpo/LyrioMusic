@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-    <link rel="icon" href="https://drive.google.com/file/d/1g35AczF4gNtFHe522g4NPbDzEjUxQNgK/view?usp=sharing">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Zaloguj się — LyrioMusic</title>
@@ -117,6 +116,20 @@ function setMsg(text, isErr = false) {
     msg.className = isErr ? "msg err" : "msg";
 }
 
+function authErrorText(error) {
+    const text = (error && error.message) || "";
+    if (/email not confirmed/i.test(text)) {
+        return "Potwierdź adres e-mail: kliknij link w wiadomości (sprawdź też spam).";
+    }
+    if (/rate limit|too many|security purposes/i.test(text)) {
+        return "Za dużo prób. Spróbuj ponownie za chwilę.";
+    }
+    if (/password/i.test(text) && /(at least|weak|short|characters)/i.test(text)) {
+        return "Hasło jest za krótkie lub za słabe.";
+    }
+    return "Nie udało się zalogować: " + (text || "nieznany błąd");
+}
+
 form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const email = document.getElementById("email").value.trim();
@@ -130,48 +143,39 @@ form.addEventListener("submit", async (e) => {
         password
     });
 
-    if (!signInError && signInData?.session) {
+    if (!signInError && signInData && signInData.session) {
         setMsg("Zalogowano. Przekierowanie...");
         window.location.href = "./";
         return;
     }
 
-    const isInvalidCreds = /invalid login credentials/i.test(signInError?.message || "");
-    if (!isInvalidCreds) {
+    if (!/invalid login credentials/i.test((signInError && signInError.message) || "")) {
         btn.disabled = false;
-        setMsg("Błąd logowania: " + (signInError?.message || "Nieznany błąd"), true);
+        setMsg(authErrorText(signInError), true);
         return;
     }
 
-    setMsg("Tworzenie nowego konta użytkownika...");
+    setMsg("Sprawdzanie konta...");
     const { data: signUpData, error: signUpError } = await sb.auth.signUp({
         email,
-        password
+        password,
+        options: { emailRedirectTo: new URL("./", window.location.href).href }
     });
 
+    btn.disabled = false;
+
     if (signUpError) {
-        btn.disabled = false;
-        setMsg("Nie udało się utworzyć konta: " + signUpError.message, true);
+        setMsg(/already registered/i.test(signUpError.message || "") ? "Nieprawidłowe hasło." : authErrorText(signUpError), true);
         return;
     }
 
-    if (signUpData?.session) {
+    if (signUpData && signUpData.session) {
         setMsg("Konto utworzone! Witamy na LyrioMusic...");
         window.location.href = "./";
         return;
     }
 
-    const { data: retryData, error: retryError } = await sb.auth.signInWithPassword({
-        email,
-        password
-    });
-
-    btn.disabled = false;
-    if (!retryError && retryData?.session) {
-        window.location.href = "./";
-    } else {
-        setMsg("Konto utworzone, ale wymagane jest potwierdzenie e-maila. Sprawdź skrzynkę albo wyłącz potwierdzanie maila w ustawieniach Auth w Supabase.", true);
-    }
+    setMsg("Jeśli to nowe konto, sprawdź skrzynkę i kliknij link potwierdzający (także w spamie). Jeśli masz już konto, sprawdź hasło.");
 });
 </script>
 </body>
