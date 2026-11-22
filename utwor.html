@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-    <link rel="icon" href="https://drive.google.com/file/d/1g35AczF4gNtFHe522g4NPbDzEjUxQNgK/view?usp=sharing">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tekst utworu — LyrioMusic</title>
@@ -14,7 +13,7 @@
     } catch (e) {}
 })();
 </script>
-<link rel="stylesheet" href="style.css?v=20261121-3">
+<link rel="stylesheet" href="style.css?v=20261121-5">
 <style>
     .song-wrap {
         max-width: 760px;
@@ -43,10 +42,12 @@
         border: 1px solid var(--line);
         border-radius: 6px;
         overflow: hidden;
-        aspect-ratio: 16 / 9;
         background: #000;
         display: none;
     }
+    .song-player.video { aspect-ratio: 16 / 9; }
+    .song-player.spotify { height: 152px; background: transparent; }
+    .song-player.soundcloud { height: 166px; background: transparent; }
     .song-player iframe {
         width: 100%;
         height: 100%;
@@ -99,8 +100,9 @@
             <div class="song-player" id="songPlayerWrap">
                 <iframe
                     id="songPlayerFrame"
-                    title="Odtwarzacz YouTube"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    title="Odtwarzacz"
+                    sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox"
+                    allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                     referrerpolicy="strict-origin-when-cross-origin"
                     allowfullscreen></iframe>
             </div>
@@ -132,40 +134,70 @@ if (toggle) {
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+const ID_PATTERNS = {
+    youtube: /^[A-Za-z0-9_-]{11}$/,
+    spotify: /^[A-Za-z0-9]{22}$/,
+    soundcloud: /^[A-Za-z0-9_-]{1,50}\/[A-Za-z0-9_-]{1,100}$/
+};
+
 function extractYouTubeId(rawUrl) {
     if (!rawUrl) return null;
-    const trimmed = rawUrl.trim();
-    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
-
+    const trimmed = String(rawUrl).trim();
+    if (ID_PATTERNS.youtube.test(trimmed)) return trimmed;
     try {
         const url = new URL(trimmed);
         const host = url.hostname.replace(/^www\./, "");
-        const allowedHosts = new Set([
-            "youtube.com",
-            "m.youtube.com",
-            "music.youtube.com",
-            "youtu.be",
-            "youtube-nocookie.com"
-        ]);
+        const allowedHosts = new Set(["youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "youtube-nocookie.com"]);
         if (!allowedHosts.has(host)) return null;
-
         if (host === "youtu.be") {
             const id = url.pathname.split("/").filter(Boolean)[0];
-            return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+            return id && ID_PATTERNS.youtube.test(id) ? id : null;
         }
-
-        const vParam = url.searchParams.get("v");
-        if (vParam && /^[a-zA-Z0-9_-]{11}$/.test(vParam)) return vParam;
-
+        const v = url.searchParams.get("v");
+        if (v && ID_PATTERNS.youtube.test(v)) return v;
         const parts = url.pathname.split("/").filter(Boolean);
-        const embedIdx = parts.findIndex(p => p === "embed" || p === "shorts" || p === "live");
-        if (embedIdx !== -1 && parts[embedIdx + 1] && /^[a-zA-Z0-9_-]{11}$/.test(parts[embedIdx + 1])) {
-            return parts[embedIdx + 1];
-        }
+        const i = parts.findIndex(p => p === "embed" || p === "shorts" || p === "live");
+        if (i !== -1 && parts[i + 1] && ID_PATTERNS.youtube.test(parts[i + 1])) return parts[i + 1];
     } catch (e) {
         return null;
     }
     return null;
+}
+
+function resolveMedia(song) {
+    const provider = song.media_provider;
+    const id = song.media_id;
+    if (provider && id && ID_PATTERNS[provider] && ID_PATTERNS[provider].test(id)) {
+        return { provider, id };
+    }
+    const legacy = extractYouTubeId(song.youtube_url);
+    if (legacy) return { provider: "youtube", id: legacy };
+    return null;
+}
+
+function embedUrl(media) {
+    if (media.provider === "youtube") return "https://www.youtube.com/embed/" + encodeURIComponent(media.id);
+    if (media.provider === "spotify") return "https://open.spotify.com/embed/track/" + encodeURIComponent(media.id);
+    return "https://w.soundcloud.com/player/?url=" + encodeURIComponent("https://soundcloud.com/" + media.id);
+}
+
+const PLAYER_TITLES = {
+    youtube: "Odtwarzacz YouTube",
+    spotify: "Odtwarzacz Spotify",
+    soundcloud: "Odtwarzacz SoundCloud"
+};
+
+function showPlayer(media) {
+    const wrap = document.getElementById("songPlayerWrap");
+    const frame = document.getElementById("songPlayerFrame");
+    if (!media) {
+        wrap.style.display = "none";
+        return;
+    }
+    wrap.className = "song-player " + (media.provider === "youtube" ? "video" : media.provider);
+    frame.title = PLAYER_TITLES[media.provider];
+    frame.src = embedUrl(media);
+    wrap.style.display = "block";
 }
 
 async function loadSong() {
@@ -182,7 +214,7 @@ async function loadSong() {
 
     let query = sb
         .from("songs")
-        .select("id, title, slug, lyrics, youtube_url, artists(name)");
+        .select("id, title, slug, lyrics, media_provider, media_id, youtube_url, artists(name)");
 
     if (slugParam) {
         query = query.eq("slug", slugParam);
@@ -195,7 +227,8 @@ async function loadSong() {
     const { data, error } = await query.limit(1);
 
     if (error) {
-        statusEl.textContent = "Błąd ładowania utworu: " + error.message;
+        statusEl.textContent = "Nie udało się załadować utworu. Spróbuj ponownie za chwilę.";
+        console.error(error);
         return;
     }
 
@@ -211,15 +244,7 @@ async function loadSong() {
     document.getElementById("songTitle").textContent = song.title;
     document.getElementById("songLyrics").textContent = song.lyrics || "";
 
-    const vid = extractYouTubeId(song.youtube_url);
-    const playerWrap = document.getElementById("songPlayerWrap");
-    const playerFrame = document.getElementById("songPlayerFrame");
-    if (vid) {
-        playerFrame.src = `https://www.youtube.com/embed/${encodeURIComponent(vid)}`;
-        playerWrap.style.display = "block";
-    } else {
-        playerWrap.style.display = "none";
-    }
+    showPlayer(resolveMedia(song));
 
     statusEl.style.display = "none";
     articleEl.style.display = "block";
